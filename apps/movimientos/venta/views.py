@@ -4,6 +4,7 @@ from rest_framework import status
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
+from decimal import Decimal
 
 from apps.catalogos.cliente.models import Cliente
 from apps.catalogos.empleado.models import Empleado
@@ -43,7 +44,7 @@ class GenerarFacturaView(APIView):
                 )
 
                 # 3. Procesar Productos y Calcular Totales
-                total_acumulado = 0
+                total_acumulado = Decimal('0.00')  # Inicializamos como Decimal
 
                 for item in datos['productos']:
                     producto = get_object_or_404(Producto, pk=item['producto_id'])
@@ -69,9 +70,11 @@ class GenerarFacturaView(APIView):
                     producto.stock_actual -= item['cantidad']
                     producto.save()
 
-                # 4. Calcular Impuestos (15% según tu SQL)
-                iva = total_acumulado * 0.15
-                total_con_iva = float(total_acumulado) + iva
+                # 4. Calcular Impuestos (15%)
+                # Convertimos 0.15 a Decimal para poder multiplicarlo
+                iva = total_acumulado * Decimal('0.15')
+                # Sumamos ambos como Decimals
+                total_con_iva = total_acumulado + iva
 
                 # 5. Generar la Factura
                 factura = FacturaVenta.objects.create(
