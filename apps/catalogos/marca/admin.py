@@ -4,5 +4,5 @@ from apps.catalogos.marca.models import Marca
 @admin.register(Marca)
 class MarcaAdmin(admin.ModelAdmin):
     search_fields = ['id', 'nombre']
-    list_display = ['id', 'nombre', 'proveedor']
-    list_filter = ['proveedor']
+    list_display = ['id', 'nombre', 'fecha_registro']
+    list_filter = ['nombre']

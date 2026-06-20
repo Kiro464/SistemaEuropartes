@@ -3,6 +3,21 @@ from apps.catalogos.empleado.models import Empleado
 from apps.catalogos.cliente.models import Cliente
 from apps.catalogos.producto.models import Producto
 
+class ConfiguracionGlobal(models.Model):
+    iva = models.DecimalField('IVA (%)', max_digits=5, decimal_places=2, default=15.00)
+    tipo_cambio = models.DecimalField('Tipo de Cambio', max_digits=10, decimal_places=4, default=36.62)
+    ultima_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuración Global'
+        verbose_name_plural = 'Configuraciones Globales'
+
+    @classmethod
+    def get_config(cls):
+        # Asegura que siempre exista al menos 1 registro
+        config, created = cls.objects.get_or_create(id=1)
+        return config
+
 class Venta(models.Model):
     id = models.AutoField(primary_key=True, db_column='Id')
     fecha = models.DateTimeField(auto_now_add=True, db_column='Fecha')

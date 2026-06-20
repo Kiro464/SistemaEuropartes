@@ -1,6 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.db.models import Q
+from rest_framework.permissions import IsAuthenticated # Seguridad
 from drf_yasg.utils import swagger_auto_schema
 from django.shortcuts import get_object_or_404
 
@@ -12,10 +14,22 @@ class ProductoApiView(APIView):
     Vista para listar todos los productos y crear nuevos registros.
     Endpoint: /catalogos/producto/
     """
+    permission_classes = [IsAuthenticated]  # Protege el endpoint
 
     @swagger_auto_schema(responses={200: ProductoSerializer(many=True)})
     def get(self, request):
-        productos = Producto.objects.all()
+        productos = Producto.objects.filter(estado=True)
+
+        # 2. Búsqueda por Query Params (?search=...)
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            productos = productos.filter(
+                Q(nombre__icontains=search_query) |
+                Q(descripcion__icontains=search_query) |
+                Q(marca__nombre__icontains=search_query) |  # <-- CORREGIDO
+                Q(proveedor__nombre__icontains=search_query)  # <-- CORREGIDO
+            )
+
         serializer = ProductoSerializer(productos, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
@@ -34,8 +48,12 @@ class ProductoDetailsApiView(APIView):
     Endpoint: /catalogos/producto/<id>/
     """
 
+    # Ajustamos para que solo encuentre registros activos
     def get_object(self, pk):
-        return get_object_or_404(Producto, pk=pk)
+        try:
+            return Producto.objects.get(pk=pk, estado=True)
+        except Producto.DoesNotExist:
+            return None
 
     @swagger_auto_schema(responses={200: ProductoSerializer})
     def get(self, request, pk):
@@ -68,5 +86,10 @@ class ProductoDetailsApiView(APIView):
     def delete(self, request, pk):
         """Eliminación del registro"""
         producto = self.get_object(pk)
-        producto.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if producto is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # MODIFICACIÓN: En vez de producto.delete(), hacemos Soft Delete
+        producto.estado = False
+        producto.save()
+        return Response({'message': 'Deshabilitado lógicamente'}, status=status.HTTP_204_NO_CONTENT)

@@ -1,5 +1,4 @@
 from django.db import models
-from apps.catalogos.proveedor.models import Proveedor
 
 
 class Marca(models.Model):
@@ -9,13 +8,6 @@ class Marca(models.Model):
         max_length=100,
         verbose_name='Nombre de la Marca',
         db_column='Nombre'
-    )
-
-    proveedor = models.ForeignKey(
-        Proveedor,
-        on_delete=models.PROTECT,
-        verbose_name='Proveedor',
-        db_column='ProveedorId'
     )
 
     fecha_registro = models.DateTimeField(
