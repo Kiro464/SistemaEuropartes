@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'drf_yasg',
     'corsheaders',
+    'apps.reportes_dw',
 ] + SEGURIDAD_SETTING_APPS + CATALOGOS_SETTING_APPS + MOVIMIENTOS_SETTING_APPS
 
 MIDDLEWARE = [
@@ -100,7 +101,23 @@ DATABASES = {
             'trusted_connection': 'yes',  # Habilita la autenticación de Windows
             'extra_params': 'TrustServerCertificate=yes',  # Útil si estás usando SSL sin un certificado de confianza
         },
-    }
+    },
+
+    # NUEVA BASE DW
+    'dw': {
+
+        'ENGINE': 'mssql',
+
+        'NAME': 'DWAutoPartes',
+
+        'HOST': '.',
+
+        'OPTIONS': {
+            'driver': 'ODBC Driver 17 for SQL Server',
+            'trusted_connection': 'yes',
+            'extra_params': 'TrustServerCertificate=yes',
+        },
+    },
 }
 
 # Password validation
@@ -162,7 +179,7 @@ TIME_ZONE = 'America/Managua'
 
 USE_I18N = True
 
-USE_TZ = True
+USE_TZ = False
 
 
 # Static files (CSS, JavaScript, Images)
