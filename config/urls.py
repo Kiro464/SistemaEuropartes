@@ -19,10 +19,9 @@ from django.urls import path, include
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from apps.seguridad.usuarios.views import EuropartesTokenObtainPairView
 
 
 # Configuración de la documentación de la API (Swagger)
@@ -40,8 +39,8 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # Endpoints de Autenticación (JWT)
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # Única fuente oficial de JWT (el frontend usa estas rutas)
+    path('api/token/', EuropartesTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # Documentación API
@@ -57,4 +56,5 @@ urlpatterns = [
 
     # Rutas de Movimientos
     path('movimientos/', include('apps.movimientos.urls')),
+    path('reportes_dw/', include('apps.reportes_dw.urls')),
 ]

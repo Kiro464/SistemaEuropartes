@@ -1,6 +1,7 @@
 from .models import User
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
@@ -28,3 +29,21 @@ class UserCreateSerializer(serializers.ModelSerializer):
         user.set_password(validated_data['password'])  # Encriptar la contraseña
         user.save()
         return user
+
+
+class EuropartesTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """
+    Identidad JWT basada únicamente en User (esquema actual).
+    No consulta Empleado: Empleado.UsuarioId pertenece a Fase 1B.
+    """
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['user_id'] = user.id
+        token['username'] = user.username
+        token['nombres'] = user.first_name
+        token['apellidos'] = user.last_name
+        group = user.groups.first()
+        token['grupo'] = group.name if group else None
+        return token

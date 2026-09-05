@@ -1,8 +1,16 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import UserCreateSerializer
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import UserCreateSerializer, EuropartesTokenObtainPairSerializer
 from drf_yasg.utils import swagger_auto_schema
+
+
+class EuropartesTokenObtainPairView(TokenObtainPairView):
+    permission_classes = [AllowAny]
+    serializer_class = EuropartesTokenObtainPairSerializer
+
 
 class UserCreateView(APIView):
     @swagger_auto_schema(request_body=UserCreateSerializer)
