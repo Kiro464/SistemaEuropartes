@@ -1,0 +1,97 @@
+/* * css/main.css
+ * Define las variables globales (Light/Dark mode), reseteo de estilos y tipografía base.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+    /* Paleta de Colores - Modo Claro (Default) */
+    --primary-color: #0d6efd; /* Azul Profesional */
+    --primary-hover: #0b5ed7;
+    --secondary-color: #6c757d;
+    --secondary-hover: #5c636a;
+    --success-color: #198754;
+    --danger-color: #dc3545;
+    --warning-color: #ffc107;
+    --info-color: #0dcaf0;
+
+    /* Fondos y Superficies */
+    --bg-color: #f4f6f9; /* Fondo general de la app */
+    --surface-color: #ffffff; /* Fondo de tarjetas, modales, etc */
+    --sidebar-bg: #212529; /* Sidebar oscuro por defecto */
+    --sidebar-hover: #343a40;
+    
+    /* Textos */
+    --text-primary: #333333;
+    --text-secondary: #6c757d;
+    --sidebar-text: #ffffff;
+    --sidebar-text-muted: #adb5bd;
+
+    /* Bordes y Sombras */
+    --border-color: #dee2e6;
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+
+    /* Medidas Estructurales */
+    --sidebar-width: 250px;
+    --sidebar-collapsed-width: 70px;
+    --topbar-height: 60px;
+    --border-radius: 8px;
+    --transition-speed: 0.3s;
+}
+
+/* Paleta de Colores - Modo Oscuro */
+[data-theme="dark"] {
+    --primary-color: #3b82f6;
+    --primary-hover: #60a5fa;
+    --bg-color: #121212;
+    --surface-color: #1e1e1e;
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --border-color: #333333;
+    --sidebar-bg: #18181b;
+    --sidebar-hover: #27272a;
+    --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.7);
+}
+
+/* =========================================
+   Reset y Tipografía Base
+   ========================================= */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease;
+}
+
+a {
+    text-decoration: none;
+    color: var(--primary-color);
+}
+
+button {
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* Clases Utilitarias */
+.hidden {
+    display: none !important;
+}
+
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }

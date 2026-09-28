@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Europartes | Sistema POS SPA</title>
+    
+    <!-- Hojas de estilo modulares (RUTAS RELATIVAS CORREGIDAS) -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    
+    <!-- Boxicons para UI -->
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+</head>
+<body>
+    <!-- Pantalla de Carga Global (Transiciones de Red pesadas) -->
+    <div id="global-loader" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Módulo de Autenticación Aislado -->
+    <div id="login-root" class="hidden"></div>
+
+    <!-- Módulo de Aplicación Protegido -->
+    <div id="app-layout" class="hidden">
+        
+        <!-- Navegación Lateral -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <i class='bx bx-wrench logo-icon'></i>
+                <span class="logo-text">EUROPARTES</span>
+            </div>
+            <nav id="sidebar-nav">
+
+                <a
+                    href="#/dashboard"
+                    class="nav-link"
+                    data-route="#/dashboard"
+                >
+                    <i class='bx bx-home'></i>
+                    <span>Dashboard</span>
+                </a>
+            
+                <a
+                    href="#/ventas"
+                    class="nav-link"
+                    data-route="#/ventas"
+                >
+                    <i class='bx bx-cart'></i>
+                    <span>Ventas</span>
+                </a>
+            
+                <a
+                    href="#/productos"
+                    class="nav-link"
+                    data-route="#/productos"
+                >
+                    <i class='bx bx-box'></i>
+                    <span>Productos</span>
+                </a>
+            
+                <a
+                    href="#/clientes"
+                    class="nav-link"
+                    data-route="#/clientes"
+                >
+                    <i class='bx bx-group'></i>
+                    <span>Clientes</span>
+                </a>
+            
+                <a
+                    href="#/empleados"
+                    class="nav-link"
+                    data-route="#/empleados"
+                >
+                    <i class='bx bx-id-card'></i>
+                    <span>Empleados</span>
+                </a>
+            
+                <a
+                    href="#/reportes"
+                    class="nav-link"
+                    data-route="#/reportes"
+                >
+                    <i class='bx bxs-report'></i>
+                    <span>Historial</span>
+                </a>
+            
+                <a
+                    href="#/configuracion"
+                    class="nav-link"
+                    data-route="#/configuracion"
+                >
+                    <i class='bx bx-cog'></i>
+                    <span>Ajustes</span>
+                </a>
+            
+            </nav>
+        </aside>
+
+        <!-- Contenedor Principal de Vistas -->
+        <div class="main-wrapper">
+            <header id="topbar">
+                <button id="toggle-sidebar" class="btn-icon" aria-label="Colapsar Menú"><i class='bx bx-menu'></i></button>
+                <div class="topbar-actions">
+                    <button id="toggle-currency" class="btn-text">Moneda: NIO</button>
+                    <button id="toggle-theme" class="btn-icon" aria-label="Cambiar Tema"><i class='bx bx-moon'></i></button>
+                    <button id="btn-logout" class="btn-icon" aria-label="Cerrar Sesión"><i class='bx bx-log-out'></i></button>
+                </div>
+            </header>
+
+            <!-- Zona dinámica gobernada por el Router -->
+            <main id="main-content">
+                <!-- Se inyecta código de template literals aquí -->
+            </main>
+        </div>
+    </div>
+
+    <!-- Zonas de Inyección de Componentes de UI Globales -->
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+
+    <!-- Motor de arranque (RUTA RELATIVA CORREGIDA) -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

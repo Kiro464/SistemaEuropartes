@@ -1,0 +1,5 @@
+MOVIMIENTOS_SETTING_APPS = [
+                            'apps.movimientos.venta',
+                            'apps.movimientos.compra',
+                            ]
+

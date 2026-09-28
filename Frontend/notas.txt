@@ -1,0 +1,1013 @@
+Manten en memoria de esta conversación, el código de los siguientes archivos
+
+
+
+apps/catalogos/cliente/models.py
+
+
+
+from django.db import models
+
+
+
+
+
+class Cliente(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombres = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombres',
+
+        db_column='Nombres'
+
+    )
+
+
+
+    apellidos = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Apellidos',
+
+        db_column='Apellidos'
+
+    )
+
+
+
+    telefono = models.CharField(
+
+        max_length=20,
+
+        verbose_name='Teléfono',
+
+        db_column='Telefono'
+
+    )
+
+
+
+    direccion = models.CharField(
+
+        max_length=255,
+
+        verbose_name='Dirección',
+
+        db_column='Direccion'
+
+    )
+
+
+
+    correo = models.EmailField(
+
+        max_length=100,
+
+        verbose_name='Correo Electrónico',
+
+        db_column='Correo'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    estado = models.BooleanField(
+
+        default=True,
+
+        verbose_name='Activo',
+
+        db_column='Estado'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Cliente'
+
+        verbose_name_plural = 'Clientes'
+
+        db_table = 'Cliente'
+
+
+
+    def __str__(self):
+
+        return f"{self.id} - {self.nombres} {self.apellidos}"
+
+
+
+apps/catalogos/cliente/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.cliente.models import Cliente
+
+
+
+class ClienteSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Cliente
+
+        fields = '__all__'
+
+
+
+apps/catalogos/departamento/models.py
+
+
+
+from django.db import models
+
+
+
+
+
+class Departamento(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombre = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombre',
+
+        db_column='Nombre'
+
+    )
+
+
+
+    descripcion = models.CharField(
+
+        max_length=255,
+
+        verbose_name='Descripción',
+
+        db_column='Descripcion'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Departamento'
+
+        verbose_name_plural = 'Departamentos'
+
+        db_table = 'Departamento'
+
+
+
+    def __str__(self):
+
+        return f"{self.id}  - {self.nombre}"
+
+
+
+apps/catalogos/departamento/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.departamento.models import Departamento
+
+
+
+class DepartamentoSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Departamento
+
+        fields = '__all__'
+
+
+
+apps/catalogos/empleado/models.py
+
+
+
+from django.db import models
+
+from apps.catalogos.departamento.models import Departamento
+
+
+
+
+
+class Empleado(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombres = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombres',
+
+        db_column='Nombres'
+
+    )
+
+
+
+    apellidos = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Apellidos',
+
+        db_column='Apellidos'
+
+    )
+
+
+
+    cargo = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Cargo',
+
+        db_column='Cargo'
+
+    )
+
+
+
+    telefono = models.CharField(
+
+        max_length=20,
+
+        verbose_name='Teléfono',
+
+        db_column='Telefono'
+
+    )
+
+
+
+    correo = models.EmailField(
+
+        max_length=100,
+
+        verbose_name='Correo Electrónico',
+
+        db_column='Correo'
+
+    )
+
+
+
+    departamento = models.ForeignKey(
+
+        Departamento,
+
+        on_delete=models.PROTECT,
+
+        verbose_name='Departamento',
+
+        db_column='DepartamentoId'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    estado = models.BooleanField(
+
+        default=True,
+
+        verbose_name='Activo',
+
+        db_column='Estado'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Empleado'
+
+        verbose_name_plural = 'Empleados'
+
+        db_table = 'Empleado'
+
+
+
+    def __str__(self):
+
+        return f"{self.id} - {self.nombres} {self.apellidos}"
+
+
+
+apps/catalogos/empleado/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.empleado.models import Empleado
+
+
+
+class EmpleadoSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Empleado
+
+        fields = '__all__'
+
+
+
+apps/catalogos/marca/models.py
+
+
+
+from django.db import models
+
+from apps.catalogos.proveedor.models import Proveedor
+
+
+
+
+
+class Marca(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombre = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombre de la Marca',
+
+        db_column='Nombre'
+
+    )
+
+
+
+    proveedor = models.ForeignKey(
+
+        Proveedor,
+
+        on_delete=models.PROTECT,
+
+        verbose_name='Proveedor',
+
+        db_column='ProveedorId'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Marca'
+
+        verbose_name_plural = 'Marcas'
+
+        db_table = 'Marca'
+
+
+
+    def __str__(self):
+
+        return f"{self.id}  - {self.nombre}"
+
+
+
+apps/catalogos/marca/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.marca.models import Marca
+
+
+
+class MarcaSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Marca
+
+        fields = '__all__'
+
+
+
+apps/catalogos/pais/models.py
+
+
+
+from django.db import models
+
+
+
+class Pais(models.Model):
+
+    # CORRECCIÓN IMPORTANTE: Mapeo explícito del ID
+
+    # Django busca 'id' por defecto, pero SQL Server tiene 'Id'.
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    # SQL: Nombre
+
+    nombre = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombre del País',
+
+        db_column='Nombre'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'País'
+
+        verbose_name_plural = 'Países'
+
+        db_table = 'Pais'
+
+
+
+    def __str__(self):
+
+        return f"{self.id}  - {self.nombre}"
+
+
+
+apps/catalogos/pais/serializers.py
+
+
+
+from rest_framework.serializers import ModelSerializer
+
+from apps.catalogos.pais.models import Pais
+
+
+
+class PaisSerializer(ModelSerializer):
+
+    class Meta:
+
+        model = Pais
+
+        fields = ['id', 'nombre']
+
+
+
+apps/catalogos/producto/models.py
+
+
+
+from django.db import models
+
+from apps.catalogos.departamento.models import Departamento
+
+
+
+
+
+class Empleado(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombres = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombres',
+
+        db_column='Nombres'
+
+    )
+
+
+
+    apellidos = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Apellidos',
+
+        db_column='Apellidos'
+
+    )
+
+
+
+    cargo = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Cargo',
+
+        db_column='Cargo'
+
+    )
+
+
+
+    telefono = models.CharField(
+
+        max_length=20,
+
+        verbose_name='Teléfono',
+
+        db_column='Telefono'
+
+    )
+
+
+
+    correo = models.EmailField(
+
+        max_length=100,
+
+        verbose_name='Correo Electrónico',
+
+        db_column='Correo'
+
+    )
+
+
+
+    departamento = models.ForeignKey(
+
+        Departamento,
+
+        on_delete=models.PROTECT,
+
+        verbose_name='Departamento',
+
+        db_column='DepartamentoId'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    estado = models.BooleanField(
+
+        default=True,
+
+        verbose_name='Activo',
+
+        db_column='Estado'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Empleado'
+
+        verbose_name_plural = 'Empleados'
+
+        db_table = 'Empleado'
+
+
+
+    def __str__(self):
+
+        return f"{self.id} - {self.nombres} {self.apellidos}"
+
+
+
+apps/catalogos/producto/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.empleado.models import Empleado
+
+
+
+class EmpleadoSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Empleado
+
+        fields = '__all__'
+
+
+
+apps/catalogos/proveedor/models.py
+
+
+
+from django.db import models
+
+from apps.catalogos.pais.models import Pais
+
+
+
+
+
+class Proveedor(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+
+
+    nombre = models.CharField(
+
+        max_length=100,
+
+        verbose_name='Nombre Comercial',
+
+        db_column='Nombre'
+
+    )
+
+
+
+    pais = models.ForeignKey(
+
+        Pais,
+
+        on_delete=models.PROTECT,
+
+        verbose_name='País',
+
+        db_column='PaisId'
+
+    )
+
+
+
+    telefono = models.CharField(
+
+        max_length=20,
+
+        verbose_name='Teléfono',
+
+        db_column='Telefono'
+
+    )
+
+
+
+    email = models.EmailField(
+
+        max_length=100,
+
+        verbose_name='Correo Electrónico',
+
+        db_column='Email'
+
+    )
+
+
+
+    sitio_web = models.URLField(
+
+        max_length=150,
+
+        verbose_name='Sitio Web',
+
+        db_column='SitioWeb'
+
+    )
+
+
+
+    fecha_registro = models.DateTimeField(
+
+        auto_now_add=True,
+
+        verbose_name='Fecha de Registro',
+
+        db_column='FechaRegistro'
+
+    )
+
+
+
+    estado = models.BooleanField(
+
+        default=True,
+
+        verbose_name='Activo',
+
+        db_column='Estado'
+
+    )
+
+
+
+    class Meta:
+
+        verbose_name = 'Proveedor'
+
+        verbose_name_plural = 'Proveedores'
+
+        db_table = 'Proveedor'
+
+
+
+    def __str__(self):
+
+        return f"{self.id}  - {self.nombre}"
+
+
+
+apps/catalogos/proveedor/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.catalogos.proveedor.models import Proveedor
+
+
+
+class ProveedorSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = Proveedor
+
+        fields = '__all__'
+
+
+
+apps/movimientos/venta/models.py
+
+
+
+from django.db import models
+
+from apps.catalogos.empleado.models import Empleado
+
+from apps.catalogos.cliente.models import Cliente
+
+from apps.catalogos.producto.models import Producto
+
+
+
+class ConfiguracionGlobal(models.Model):
+
+    iva = models.DecimalField('IVA (%)', max_digits=5, decimal_places=2, default=15.00)
+
+    tipo_cambio = models.DecimalField('Tipo de Cambio', max_digits=10, decimal_places=4, default=36.62)
+
+    ultima_actualizacion = models.DateTimeField(auto_now=True)
+
+
+
+    class Meta:
+
+        verbose_name = 'Configuración Global'
+
+        verbose_name_plural = 'Configuraciones Globales'
+
+
+
+    @classmethod
+
+    def get_config(cls):
+
+        # Asegura que siempre exista al menos 1 registro
+
+        config, created = cls.objects.get_or_create(id=1)
+
+        return config
+
+
+
+class Venta(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+    fecha = models.DateTimeField(auto_now_add=True, db_column='Fecha')
+
+    empleado = models.ForeignKey(Empleado, on_delete=models.PROTECT, db_column='EmpleadoId')
+
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, db_column='ClienteId')
+
+    fecha_registro = models.DateTimeField(auto_now_add=True, db_column='FechaRegistro')
+
+
+
+    class Meta:
+
+        db_table = 'Venta'
+
+
+
+class DetalleVenta(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+    venta = models.ForeignKey(Venta, on_delete=models.CASCADE, db_column='VentaId')
+
+    producto = models.ForeignKey(Producto, on_delete=models.PROTECT, db_column='ProductoId')
+
+    cantidad = models.IntegerField(db_column='Cantidad')
+
+    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2, db_column='PrecioUnitario')
+
+    fecha_registro = models.DateTimeField(auto_now_add=True, db_column='FechaRegistro')
+
+
+
+    class Meta:
+
+        db_table = 'DetalleVenta'
+
+
+
+class FacturaVenta(models.Model):
+
+    id = models.AutoField(primary_key=True, db_column='Id')
+
+    fecha_emision = models.DateTimeField(auto_now_add=True, db_column='FechaEmision')
+
+    total = models.DecimalField(max_digits=12, decimal_places=2, db_column='Total')
+
+    iva = models.DecimalField(max_digits=12, decimal_places=2, db_column='IVA')
+
+    total_con_iva = models.DecimalField(max_digits=12, decimal_places=2, db_column='TotalConIVA')
+
+    venta = models.ForeignKey(Venta, on_delete=models.CASCADE, db_column='VentaId')
+
+    fecha_registro = models.DateTimeField(auto_now_add=True, db_column='FechaRegistro')
+
+
+
+    class Meta:
+
+        db_table = 'FacturaVenta'
+
+
+
+apps/movimientos/producto/serializers.py
+
+
+
+from rest_framework import serializers
+
+from apps.movimientos.venta.models import Venta, DetalleVenta, FacturaVenta, ConfiguracionGlobal
+
+
+
+class ConfiguracionGlobalSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = ConfiguracionGlobal
+
+        fields = ['iva', 'tipo_cambio', 'ultima_actualizacion']
+
+
+
+# Serializer para leer los productos que vienen en el JSON
+
+class DetalleVentaInputSerializer(serializers.Serializer):
+
+    producto_id = serializers.IntegerField()
+
+    cantidad = serializers.IntegerField()
+
+
+
+# Serializer principal para crear la factura
+
+class CrearFacturaSerializer(serializers.Serializer):
+
+    cliente_id = serializers.IntegerField()
+
+    empleado_id = serializers.IntegerField()
+
+    productos = DetalleVentaInputSerializer(many=True)
+
+
+
+# Serializer para mostrar la Factura generada (Salida)
+
+class FacturaVentaSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = FacturaVenta
+
+        fields = '__all__'
+
+
+
+class HistorialFacturaSerializer(serializers.ModelSerializer):
+
+    # Traemos datos anidados de la venta para que la SPA los lea fácilmente
+
+    cliente = serializers.CharField(source='venta.cliente.__str__', read_only=True)
+
+    empleado = serializers.CharField(source='venta.empleado.__str__', read_only=True)
+
+    fecha = serializers.DateTimeField(source='venta.fecha', format="%Y-%m-%d %H:%M:%S", read_only=True)
+
+
+
+    class Meta:
+
+        model = FacturaVenta
+
+        fields = ['id', 'fecha', 'cliente', 'empleado', 'total', 'iva', 'total_con_iva']
