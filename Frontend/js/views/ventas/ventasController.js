@@ -2,11 +2,10 @@ import { VentasView } from './ventasView.js';
 import { VentasService } from './ventasService.js';
 import { ProductosService } from '../productos/productosService.js';
 import { ClientesService } from '../clientes/clientesService.js';
-import { EmpleadosService } from '../empleados/empleadosService.js';
+import { escapeHtml } from '../../utils/escapeHtml.js';
 import { ClientesController } from '../clientes/clientesController.js';
 import { UI } from '../../components/ui.js';
 import { StateManager } from '../../core/state.js';
-import { ApiService } from '../../core/api.js';
 
 export const VentasController = {
     debounceTimer: null,
@@ -48,27 +47,25 @@ export const VentasController = {
 
     async loadDependencias() {
         try {
-            const [clientesData, empleadosData, deptosData] = await Promise.all([
-                ClientesService.getAll(),
-                EmpleadosService.getAll(),
-                ApiService.get('/catalogos/departamento/')
-            ]);
-            
-            const clientes = clientesData.results || clientesData;
-            let empleados = empleadosData.results || empleadosData;
-            const departamentos = deptosData.results || deptosData;
+            // El vendedor ya se determina por la sesión autenticada.
+            // Solo necesitamos cargar los clientes para el POS.
+            const clientesData = await ClientesService.getAll();
+            const clientes = clientesData.results || clientesData || [];
 
-            const deptoVentas = departamentos.find(d => d.nombre.toLowerCase().includes('venta'));
-            if (deptoVentas) {
-                empleados = empleados.filter(e => e.departamento === deptoVentas.id);
-            }
+            const clienteSelect = document.getElementById('pos_cliente');
+            if (!clienteSelect) return;
 
-            document.getElementById('pos_cliente').innerHTML = '<option value="">Seleccione Cliente...</option>' + 
-                clientes.map(c => `<option value="${c.id}">${c.nombres} ${c.apellidos}</option>`).join('');
-                
-            document.getElementById('pos_empleado').innerHTML = '<option value="">Seleccione Empleado...</option>' + 
-                empleados.map(e => `<option value="${e.id}">${e.nombres} ${e.apellidos} - ${e.cargo}</option>`).join('');
-        } catch (error) { UI.showToast("Error cargando personal/clientes", "error"); }
+            clienteSelect.innerHTML = '<option value="">Seleccione Cliente...</option>' +
+                clientes.map(c => {
+                    const nombre = `${c.nombres || ''} ${c.apellidos || ''}`.trim();
+                    return `<option value="${c.id}">${escapeHtml(nombre)}</option>`;
+                }).join('');
+
+            this.updateFacturaButtonState();
+        } catch (error) {
+            console.error('Error cargando clientes para POS:', error);
+            UI.showToast('Error cargando clientes', 'error');
+        }
     },
 
     async loadProductosPos(search = '') {
@@ -79,21 +76,46 @@ export const VentasController = {
         try {
             const data = await ProductosService.getAll(search);
             const productos = data.results || data;
-            
+
+            // En el POS se utiliza el stock disponible, no el stock físico.
+            // StockDisponible = StockActual - StockReservado.
+            // Si el backend ya envía stock_disponible, se respeta ese valor.
+            productos.sort((a, b) => {
+                const stockA = Number(
+                    a.stock_disponible ?? (Number(a.stock_actual ?? 0) - Number(a.stock_reservado ?? 0))
+                );
+                const stockB = Number(
+                    b.stock_disponible ?? (Number(b.stock_actual ?? 0) - Number(b.stock_reservado ?? 0))
+                );
+                if ((stockA > 0) !== (stockB > 0)) return stockA > 0 ? -1 : 1;
+                return String(a.nombre ?? '').localeCompare(String(b.nombre ?? ''), 'es', { sensitivity: 'base' });
+            });
+
             if (!productos || productos.length === 0) return container.innerHTML = `<div class="text-center" style="padding: 2rem;">No se encontraron productos.</div>`;
 
             let rows = productos.map(p => {
-                const stockAgotado = p.stock_actual <= 0;
+                const stockFisico = Number(p.stock_actual ?? 0);
+                const stockReservado = Number(p.stock_reservado ?? 0);
+                const stockDisponible = Math.max(
+                    0,
+                    Number(p.stock_disponible ?? (stockFisico - stockReservado))
+                );
+                const stockAgotado = stockDisponible <= 0;
                 const precioVisual = StateManager.getPrecioVisual(p.precio_unitario);
                 const simbolo = StateManager.getSimbolo();
+                const nombreSeguro = escapeHtml(p.nombre);
 
                 return `
                 <div style="border-bottom: 1px solid var(--border-color); padding: 10px; display: flex; justify-content: space-between; align-items: center; opacity: ${stockAgotado || !p.estado ? '0.5' : '1'};">
                     <div>
-                        <strong style="display:block; color: var(--text-color);">${p.nombre}</strong>
-                        <small style="color:var(--text-secondary)">Stock: <b style="color: ${stockAgotado ? 'var(--danger-color)' : 'inherit'}">${p.stock_actual}</b> | Precio: ${simbolo} ${precioVisual.toFixed(2)}</small>
+                        <strong style="display:block; color: var(--text-color);">${nombreSeguro}</strong>
+                        <small style="color:var(--text-secondary)">
+                        Disponible: <b style="color: ${stockAgotado ? 'var(--danger-color)' : 'inherit'}">${stockDisponible}</b>
+                        <span style="opacity:.75">| Reservado: ${stockReservado} | Físico: ${stockFisico}</span>
+                        | Precio: ${simbolo} ${precioVisual.toFixed(2)}
+                    </small>
                     </div>
-                    <button class="btn btn-sm btn-secondary btn-add-cart" data-id="${p.id}" data-nombre="${p.nombre}" data-precio="${p.precio_unitario}" data-stock="${p.stock_actual}" ${stockAgotado || !p.estado ? 'disabled title="Agotado o Inactivo"' : ''}>
+                    <button class="btn btn-sm btn-secondary btn-add-cart" data-id="${p.id}" data-nombre="${nombreSeguro}" data-precio="${p.precio_unitario}" data-stock="${stockDisponible}" ${stockAgotado || !p.estado ? 'disabled title="Sin disponibilidad o producto inactivo"' : ''}>
                         <i class='bx bx-plus'></i>
                     </button>
                 </div>`;
@@ -155,12 +177,10 @@ export const VentasController = {
         
         if (this.carrito.length === 0) {
             container.innerHTML = `<div class="text-center" style="color: var(--text-secondary); margin-top: 2rem;">El carrito está vacío</div>`;
-            btnConfirmar.disabled = true;
             this.calcularTotalesVisuales();
+            this.updateFacturaButtonState();
             return;
         }
-
-        btnConfirmar.disabled = false;
         
         let html = '';
         this.carrito.forEach(item => {
@@ -171,8 +191,11 @@ export const VentasController = {
             html += `
             <div style="background: var(--surface-color); padding: 10px; border-radius: 5px; border: 1px solid var(--border-color); margin-bottom: 5px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <strong style="font-size: 0.9rem; color: var(--text-color);">${item.nombre}</strong>
+                    <strong style="font-size: 0.9rem; color: var(--text-color);">${escapeHtml(item.nombre)}</strong>
                     <button class="btn-icon btn-remove-item" data-id="${item.id}" style="color: var(--danger-color); padding: 0;"><i class='bx bx-trash'></i></button>
+                </div>
+                <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+                    <small style="color:var(--text-secondary);">Disponible para esta venta: <b>${item.stock}</b></small>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 5px;">
@@ -191,6 +214,7 @@ export const VentasController = {
         document.querySelectorAll('.btn-remove-item').forEach(b => b.addEventListener('click', (e) => this.eliminarDelCarrito(parseInt(e.currentTarget.dataset.id))));
 
         this.calcularTotalesVisuales();
+        this.updateFacturaButtonState();
     },
 
     calcularTotalesVisuales() {
@@ -207,11 +231,26 @@ export const VentasController = {
         document.getElementById('lbl_total').innerText = `${simbolo} ${totalVisual.toFixed(2)}`;
     },
 
+    updateFacturaButtonState() {
+        const btn = document.getElementById('btn-confirmar-venta');
+        const clienteSelect = document.getElementById('pos_cliente');
+        if (!btn) return;
+
+        const tieneCliente = Boolean(clienteSelect?.value);
+        const tieneProductos = this.carrito.length > 0;
+        btn.disabled = !(tieneCliente && tieneProductos);
+    },
+
     bindEvents() {
         document.getElementById('search-pos-producto').addEventListener('input', (e) => {
             clearTimeout(this.debounceTimer);
             this.debounceTimer = setTimeout(() => this.loadProductosPos(e.target.value.trim()), 500);
         });
+
+        const clienteSelect = document.getElementById('pos_cliente');
+        if (clienteSelect) {
+            clienteSelect.addEventListener('change', () => this.updateFacturaButtonState());
+        }
 
         // CORRECCIÓN FASE 2: Nuevo Cliente (Prevenir propagación y pase limpio)
         const btnNuevoCliente = document.getElementById('btn-pos-nuevo-cliente');
@@ -231,14 +270,12 @@ export const VentasController = {
 
         document.getElementById('btn-confirmar-venta').addEventListener('click', async () => {
             const clienteId = document.getElementById('pos_cliente').value;
-            const empleadoId = document.getElementById('pos_empleado').value;
 
-            if (!clienteId || !empleadoId) return UI.showToast('Debe seleccionar Empleado y Cliente', 'error');
+            if (!clienteId) return UI.showToast('Debe seleccionar un cliente', 'error');
             if (this.carrito.length === 0) return;
 
             const payload = {
                 cliente_id: parseInt(clienteId),
-                empleado_id: parseInt(empleadoId),
                 productos: this.carrito.map(item => ({
                     producto_id: item.id,
                     cantidad: item.cantidad
@@ -253,16 +290,25 @@ export const VentasController = {
 
             try {
                 const facturaGenerada = await VentasService.generarFactura(payload);
-                this.mostrarFactura(facturaGenerada, detallesVentaSnapshot);
+                const factura = facturaGenerada?.factura || facturaGenerada;
+                this.mostrarFactura(factura, detallesVentaSnapshot);
                 
                 // Limpiar pantalla posterior
                 this.carrito = [];
                 this.renderCarrito();
                 document.getElementById('pos_cliente').value = '';
+                this.updateFacturaButtonState();
                 this.loadProductosPos(); 
             } catch (error) {
-                UI.showToast('Error procesando la venta', 'error');
+                const detail = error?.data?.detail
+                    || error?.data?.error
+                    || error?.data?.non_field_errors?.[0]
+                    || 'Error procesando la venta';
+                UI.showToast(String(detail), 'error');
                 document.getElementById('btn-confirmar-venta').disabled = false;
+                // La disponibilidad puede haber cambiado por otra venta concurrente.
+                // Recargamos el catálogo sin alterar el carrito.
+                await this.loadProductosPos(document.getElementById('search-pos-producto')?.value?.trim() || '');
             } finally {
                 UI.hideGlobalLoader();
             }
@@ -323,7 +369,10 @@ export const VentasController = {
     },
 
     mostrarFactura(factura, detalles) {
-        const dateStr = new Date(factura.fecha_registro).toLocaleString();
+        const fechaFactura = factura.fecha_emision || factura.fecha_registro || factura.fecha;
+        const dateStr = fechaFactura
+            ? new Date(fechaFactura).toLocaleString()
+            : 'Fecha no disponible';
         const simbolo = StateManager.getSimbolo();
         const factor = StateManager.moneda === 'USD' ? StateManager.tipoCambio : 1;
         

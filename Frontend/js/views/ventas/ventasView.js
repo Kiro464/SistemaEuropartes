@@ -1,5 +1,11 @@
+import { AuthService } from '../../core/auth.js';
+
 export const VentasView = {
     render() {
+        const user = AuthService.getUser() || {};
+        const nombre = `${user.nombres || ''} ${user.apellidos || ''}`.trim() || user.username || 'Usuario autenticado';
+        const rol = user.grupo || 'Vendedor';
+
         return `
             <div class="dashboard-container">
                 <div class="module-header">
@@ -15,6 +21,9 @@ export const VentasView = {
                     <div class="module-card" style="min-height: 65vh; display: flex; flex-direction: column;">
                         <div style="margin-bottom: 1rem;">
                             <h3 style="margin-top: 0; color: var(--text-color);">Catálogo de Productos</h3>
+                            <small style="display:block; color:var(--text-secondary); margin-bottom:8px;">
+                                Disponible = stock físico menos unidades reservadas por ventas pendientes de despacho.
+                            </small>
                             <div style="display: flex; gap: 10px;">
                                 <input type="text" id="search-pos-producto" class="form-control" placeholder="Buscar producto..." style="flex: 1;">
                             </div>
@@ -28,8 +37,14 @@ export const VentasView = {
                         <h3 style="margin-top: 0; color: var(--text-color);">Detalle de Facturación</h3>
                         
                         <div class="form-group" style="margin-bottom: 10px;">
-                            <label>Atendido por (Empleado Ventas) <span class="req">*</span></label>
-                            <select id="pos_empleado" class="form-control"></select>
+                            <label>Vendedor autenticado</label>
+                            <div class="form-control" style="display:flex; align-items:center; gap:10px; background:var(--bg-color); cursor:default;">
+                                <i class='bx bx-user-circle' style="font-size:1.25rem; color:var(--primary-color);"></i>
+                                <div style="display:flex; flex-direction:column; line-height:1.2;">
+                                    <strong style="color:var(--text-color);">${nombre}</strong>
+                                    <small style="color:var(--text-secondary);">${rol}</small>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="form-group" style="margin-bottom: 15px;">

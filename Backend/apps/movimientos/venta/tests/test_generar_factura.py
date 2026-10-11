@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -81,6 +82,10 @@ class GenerarFacturaTestCase(TestCase):
         cls.usuario = User.objects.create_user(
             username="vendedor_test",
             password="Europartes123",
+        )
+
+        cls.usuario.groups.add(
+            Group.objects.get_or_create(name="Vendedor")[0]
         )
         
         cls.empleado = Empleado.objects.create(

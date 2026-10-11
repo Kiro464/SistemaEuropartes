@@ -1,127 +1,135 @@
 /**
  * js/app.js
- * PUNTO DE ENTRADA FINALIZADO (Fusionado).
+ * Punto de entrada global de Europartes.
  */
 
 import { Router } from './core/router.js';
 import { StateManager } from './core/state.js';
 import { AuthService } from './core/auth.js';
+import { RBAC } from './core/rbac.js';
+import { renderNavigation, PAGE_META } from './core/navigation.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("Inicializando Sistema Europartes...");
-
-    // 1. Inicializar Estado Global (Tema + Moneda persistida)
     StateManager.init();
-
-    // 2. Inicializar Router
-    Router.init();
-
-    // 3. Inicializar eventos globales
     initGlobalLayoutEvents();
-
-    // 4. Asegurar botón global de moneda (si no existe en HTML)
+    initUserMenu();
     initGlobalCurrencyButton();
+    Router.init();
 });
 
 function initGlobalLayoutEvents() {
-    // Sidebar
     const toggleSidebarBtn = document.getElementById('toggle-sidebar');
     const sidebar = document.getElementById('sidebar');
 
-    if (toggleSidebarBtn && sidebar) {
-        toggleSidebarBtn.addEventListener('click', () => {
-            sidebar.classList.toggle('collapsed');
-        });
-    }
+    toggleSidebarBtn?.addEventListener('click', () => {
+        sidebar?.classList.toggle('collapsed');
+        document.body.classList.toggle('sidebar-collapsed', sidebar?.classList.contains('collapsed'));
+    });
 
-    // Tema
-    const toggleThemeBtn = document.getElementById('toggle-theme');
+    document.getElementById('toggle-theme')?.addEventListener('click', () => {
+        const currentTheme = StateManager.getState().theme;
+        StateManager.setTheme(currentTheme === 'light' ? 'dark' : 'light');
+        updateThemeButton();
+    });
 
-    if (toggleThemeBtn) {
-        toggleThemeBtn.addEventListener('click', () => {
-            const currentTheme = StateManager.getState().theme;
-            StateManager.setTheme(
-                currentTheme === 'light' ? 'dark' : 'light'
-            );
-        });
-    }
+    document.getElementById('btn-logout')?.addEventListener('click', () => AuthService.logout());
 
-    // Botón de moneda preexistente (si existe en tu HTML)
-    const toggleCurrencyBtn = document.getElementById('toggle-currency');
+    window.addEventListener('hashchange', () => {
+        updatePageContext();
+        closeUserMenu();
+        if (window.innerWidth <= 900) {
+            document.getElementById('sidebar')?.classList.remove('active');
+        }
+    });
 
-    if (toggleCurrencyBtn) {
-        updateCurrencyButton(toggleCurrencyBtn);
+    window.addEventListener('monedaCambiada', updateCurrencyButton);
+    window.addEventListener('currencyChanged', updateCurrencyButton);
+    window.addEventListener('storage', event => {
+        if (event.key === 'europartes_user') updateUserIdentity();
+    });
 
-        toggleCurrencyBtn.addEventListener('click', () => {
-            StateManager.toggleCurrency();
-            updateCurrencyButton(toggleCurrencyBtn);
-        });
+    updateThemeButton();
+    updateCurrencyButton();
+    updateUserIdentity();
+    updatePageContext();
+}
 
-        // Sincronización externa
-        window.addEventListener('monedaCambiada', () => {
-            updateCurrencyButton(toggleCurrencyBtn);
-        });
-    }
+function initUserMenu() {
+    const trigger = document.getElementById('user-menu-toggle');
+    const panel = document.getElementById('user-menu-panel');
 
-    // Logout
-    const btnLogout = document.getElementById('btn-logout');
+    trigger?.addEventListener('click', event => {
+        event.stopPropagation();
+        const isOpen = !panel?.classList.contains('hidden');
+        panel?.classList.toggle('hidden', isOpen);
+        trigger.setAttribute('aria-expanded', String(!isOpen));
+    });
 
-    if (btnLogout) {
-        btnLogout.addEventListener('click', () => {
-            AuthService.logout();
-        });
+    document.addEventListener('click', event => {
+        if (!event.target.closest('.user-menu')) closeUserMenu();
+    });
+}
+
+function closeUserMenu() {
+    const panel = document.getElementById('user-menu-panel');
+    const trigger = document.getElementById('user-menu-toggle');
+    panel?.classList.add('hidden');
+    trigger?.setAttribute('aria-expanded', 'false');
+}
+
+function updateUserIdentity() {
+    const user = AuthService.getUser();
+    const name = [user?.nombres, user?.apellidos].filter(Boolean).join(' ').trim() || user?.username || 'Usuario';
+    const role = user?.grupo || 'Sin rol';
+    const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'EU';
+
+    document.getElementById('topbar-user-name')?.replaceChildren(document.createTextNode(name));
+    document.getElementById('topbar-user-role')?.replaceChildren(document.createTextNode(role));
+    document.getElementById('menu-user-name')?.replaceChildren(document.createTextNode(name));
+    document.getElementById('menu-user-role')?.replaceChildren(document.createTextNode(role));
+    document.getElementById('user-avatar')?.replaceChildren(document.createTextNode(initials));
+
+    window.__EUROPARTES_ROLE__ = role;
+    renderNavigation(
+        document.getElementById('sidebar-nav'),
+        role,
+        window.location.hash
+    );
+    RBAC.applyActionVisibility();
+}
+
+function updatePageContext() {
+    const [section, page] = PAGE_META[window.location.hash] || ['Europartes', 'Sistema de gestión'];
+    document.getElementById('breadcrumb-section')?.replaceChildren(document.createTextNode(section));
+    document.getElementById('breadcrumb-page')?.replaceChildren(document.createTextNode(page));
+
+    const role = AuthService.getRole();
+    if (role) {
+        renderNavigation(
+            document.getElementById('sidebar-nav'),
+            role,
+            window.location.hash
+        );
     }
 }
 
-// NUEVO: Crea botón dinámico solo si no existe uno físico en HTML
+function updateThemeButton() {
+    const icon = document.querySelector('#toggle-theme i');
+    if (!icon) return;
+    const theme = StateManager.getState().theme;
+    icon.className = `bx ${theme === 'dark' ? 'bx-sun' : 'bx-moon'}`;
+}
+
+function updateCurrencyButton() {
+    const button = document.getElementById('toggle-currency');
+    if (!button) return;
+    const moneda = StateManager.getState().moneda ?? StateManager.moneda ?? 'NIO';
+    button.innerHTML = `<i class='bx bx-money'></i><span>Moneda: <strong>${moneda}</strong></span>`;
+}
+
 function initGlobalCurrencyButton() {
-    const existingBtn = document.getElementById('toggle-currency');
+    const button = document.getElementById('toggle-currency');
+    if (!button) return;
 
-    // Si ya existe, no duplicar
-    if (existingBtn) return;
-
-    const topbar = document.querySelector('.topbar-actions');
-
-    const monedaToggleBtn = document.createElement('button');
-    monedaToggleBtn.id = 'dynamic-toggle-currency';
-    monedaToggleBtn.className = 'btn btn-secondary';
-
-    monedaToggleBtn.style.marginRight = '15px';
-
-    updateCurrencyButton(monedaToggleBtn, true);
-
-    monedaToggleBtn.addEventListener('click', () => {
-        const nuevaMoneda =
-            StateManager.moneda === 'NIO' ? 'USD' : 'NIO';
-
-        StateManager.setMoneda(nuevaMoneda);
-        updateCurrencyButton(monedaToggleBtn, true);
-    });
-
-    // Insertar en topbar si existe
-    if (topbar) {
-        topbar.prepend(monedaToggleBtn);
-    } else {
-        // Fallback flotante
-        monedaToggleBtn.style.position = 'fixed';
-        monedaToggleBtn.style.top = '10px';
-        monedaToggleBtn.style.right = '10px';
-        monedaToggleBtn.style.zIndex = '9999';
-
-        document.body.appendChild(monedaToggleBtn);
-    }
-
-    // Mantener sincronizado con cualquier cambio global
-    window.addEventListener('monedaCambiada', () => {
-        updateCurrencyButton(monedaToggleBtn, true);
-    });
-}
-
-// Helper reutilizable
-function updateCurrencyButton(button, withIcon = false) {
-    const moneda = StateManager.moneda;
-
-    button.innerHTML = withIcon
-        ? `<i class='bx bx-money'></i> Moneda: <strong>${moneda}</strong>`
-        : `Moneda: ${moneda}`;
+    button.addEventListener('click', () => StateManager.toggleCurrency());
 }

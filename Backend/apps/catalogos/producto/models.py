@@ -37,6 +37,12 @@ class Producto(models.Model):
         db_column='StockActual'
     )
 
+    stock_reservado = models.IntegerField(
+        default=0,
+        verbose_name='Stock Reservado',
+        db_column='StockReservado'
+    )
+
     proveedor = models.ForeignKey(
         Proveedor,
         on_delete=models.PROTECT,

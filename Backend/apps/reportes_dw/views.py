@@ -1,8 +1,6 @@
-from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 
 from .services.etl_service import (
     ETLService,
@@ -16,23 +14,10 @@ from .services.inventario_service import InventarioService
 from .services.monitoreo_service import MonitoreoService
 
 
-ROLES_DASHBOARD = [
-    "Administrador General",
-    "Asesor Financiero",
-    "Coordinador de Logística",
-]
-
-
-class PuedeConsultarDashboard(BasePermission):
-    """Permite consultar indicadores consolidados del Data Warehouse."""
-
-    def has_permission(self, request, view):
-        usuario = request.user
-        return bool(
-            usuario
-            and usuario.is_authenticated
-            and usuario.groups.filter(name__in=ROLES_DASHBOARD).exists()
-        )
+from .permissions import (
+    PuedeConsultarDashboard,
+    PuedeActualizarDashboard,
+)
 
 
 _dashboard = DashboardService()
@@ -190,7 +175,7 @@ class EstadoETLIndicadorView(APIView):
 
 
 class EjecutarETLView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [PuedeActualizarDashboard]
 
     def post(self, request):
         service = ETLService()
@@ -213,7 +198,7 @@ class EjecutarETLView(APIView):
 
 
 class EstadoETLView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [PuedeActualizarDashboard]
 
     def get(self, request, ejecucion_key):
         service = ETLService()
@@ -234,7 +219,7 @@ class EstadoETLView(APIView):
 
 
 class UltimaEjecucionETLView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [PuedeActualizarDashboard]
 
     def get(self, request):
         service = ETLService()
@@ -250,3 +235,5 @@ class UltimaEjecucionETLView(APIView):
             )
 
         return Response(resultado)
+
+

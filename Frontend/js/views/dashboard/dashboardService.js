@@ -5,6 +5,20 @@ const qsLimite = (rango, limite = 5) =>
     `?rango=${encodeURIComponent(rango)}&limite=${limite}`;
 
 export const DashboardService = {
+    // --- Orquestación ETL del Dashboard ---
+    async ejecutarETL() {
+        return ApiService.post('/reportes_dw/etl/ejecutar/', {});
+    },
+
+    async getEstadoETLEjecucion(ejecucionKey) {
+        return ApiService.get(`/reportes_dw/etl/ejecuciones/${encodeURIComponent(ejecucionKey)}/`);
+    },
+
+    async getUltimaEjecucionETL() {
+        return ApiService.get('/reportes_dw/etl/ultima/');
+    },
+
+    // --- Indicadores DW ---
     async getVentasTotal(rango) {
         return ApiService.get(`/reportes_dw/dashboard/ventas-total/${qs(rango)}`);
     },
@@ -45,7 +59,18 @@ export const DashboardService = {
         return ApiService.get(`/reportes_dw/dashboard/movimientos-inventario/${qs(rango)}`);
     },
     async getStockCritico() {
-        return ApiService.get('/reportes_dw/dashboard/stock-critico/?limite=100');
+        // El stock crítico representa el estado ACTUAL del inventario.
+        // Por eso se consulta el OLTP y no el snapshot histórico del DW.
+        const response = await ApiService.get('/catalogos/producto/');
+        const productos = response.results || response || [];
+
+        return productos
+            .filter(producto => Number(producto.stock_actual ?? 0) <= 5)
+            .map(producto => ({
+                producto: producto.nombre,
+                producto_id: producto.id,
+                stock_final: Number(producto.stock_actual ?? 0)
+            }));
     },
     async getStockEvolucion(rango) {
         return ApiService.get(`/reportes_dw/dashboard/stock-evolucion/${qsLimite(rango, 90)}`);

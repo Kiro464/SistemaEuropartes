@@ -6,6 +6,7 @@ from apps.movimientos.venta.views import (
     ExportarFacturasExcelAPIView, 
     DetalleFacturaAPIView,
     ValidarDespachoAPIView,
+    DespachosPendientesAPIView,
 )
 
 app_name = 'venta'
@@ -39,6 +40,12 @@ urlpatterns = [
         'facturas/<int:factura_id>/detalle/',
         DetalleFacturaAPIView.as_view(),
         name='detalle_factura'
+    ),
+
+    path(
+        'despachos/pendientes/',
+        DespachosPendientesAPIView.as_view(),
+        name='despachos_pendientes',
     ),
 
     path(

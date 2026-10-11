@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.catalogos.empleado.models import Empleado
+from apps.catalogos.producto.models import Producto
 from apps.movimientos.compra.services import (
     InventarioError,
     InventarioService,
@@ -180,6 +181,29 @@ class DespachoVentaService:
 
                 detalles_procesados.append(detalle)
                 continue
+
+            # ------------------------------------------------------
+            # Consumir la reserva comprometida
+            # ------------------------------------------------------
+            #
+            # Las órdenes creadas con la nueva lógica tienen una reserva
+            # equivalente a la cantidad pendiente. Se admite temporalmente
+            # una orden histórica sin reserva para no romper datos de prueba
+            # existentes: en ese caso se descuenta únicamente la reserva
+            # disponible (cero) y se mantiene la validación de stock físico.
+            producto = (
+                Producto.objects
+                .select_for_update()
+                .get(pk=detalle.producto_id)
+            )
+            reserva_a_consumir = min(
+                producto.stock_reservado or 0,
+                cantidad_a_despachar,
+            )
+
+            if reserva_a_consumir:
+                producto.stock_reservado -= reserva_a_consumir
+                producto.save(update_fields=["stock_reservado"])
 
             # ------------------------------------------------------
             # Salida de inventario

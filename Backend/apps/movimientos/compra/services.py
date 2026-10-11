@@ -15,6 +15,97 @@ class InventarioService:
 
     @staticmethod
     @transaction.atomic
+    def reservar_stock(
+        producto_id,
+        cantidad,
+    ):
+        """
+        Reserva stock para una venta pendiente de despacho.
+
+        La reserva no modifica StockActual ni genera movimiento de
+        Kardex. Solo incrementa StockReservado.
+
+        StockDisponible = StockActual - StockReservado.
+        """
+        if cantidad <= 0:
+            raise InventarioError(
+                "La cantidad a reservar debe ser mayor que cero."
+            )
+
+        try:
+            producto = (
+                Producto.objects
+                .select_for_update()
+                .get(pk=producto_id)
+            )
+        except Producto.DoesNotExist:
+            raise InventarioError(
+                f"El producto con ID {producto_id} no existe."
+            )
+
+        stock_actual = producto.stock_actual or 0
+        stock_reservado = producto.stock_reservado or 0
+        stock_disponible = stock_actual - stock_reservado
+
+        if stock_disponible < cantidad:
+            raise InventarioError(
+                f"Stock disponible insuficiente para el producto "
+                f"'{producto.nombre}'. "
+                f"Stock físico: {stock_actual}. "
+                f"Stock reservado: {stock_reservado}. "
+                f"Stock disponible: {max(stock_disponible, 0)}. "
+                f"Cantidad solicitada: {cantidad}."
+            )
+
+        producto.stock_reservado = stock_reservado + cantidad
+        producto.save(update_fields=["stock_reservado"])
+
+        return producto
+
+    @staticmethod
+    @transaction.atomic
+    def liberar_reserva(
+        producto_id,
+        cantidad,
+    ):
+        """
+        Libera una reserva pendiente sin modificar StockActual ni generar
+        movimiento de Kardex.
+
+        Se utiliza cuando una cantidad reservada deja de estar comprometida.
+        """
+        if cantidad <= 0:
+            raise InventarioError(
+                "La cantidad a liberar debe ser mayor que cero."
+            )
+
+        try:
+            producto = (
+                Producto.objects
+                .select_for_update()
+                .get(pk=producto_id)
+            )
+        except Producto.DoesNotExist:
+            raise InventarioError(
+                f"El producto con ID {producto_id} no existe."
+            )
+
+        stock_reservado = producto.stock_reservado or 0
+
+        if stock_reservado < cantidad:
+            raise InventarioError(
+                f"La reserva del producto '{producto.nombre}' "
+                f"es insuficiente para liberar {cantidad} unidades. "
+                f"Reserva actual: {stock_reservado}."
+            )
+
+        producto.stock_reservado = stock_reservado - cantidad
+        producto.save(update_fields=["stock_reservado"])
+
+        return producto
+
+    @staticmethod
+    @transaction.atomic
     def registrar_entrada_compra(
         producto_id,
         cantidad,

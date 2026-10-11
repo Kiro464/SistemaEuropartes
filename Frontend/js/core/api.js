@@ -115,6 +115,10 @@ export const ApiService = {
         return this._request(endpoint, { method: 'PUT', body: JSON.stringify(data) });
     },
 
+    patch(endpoint, data) {
+        return this._request(endpoint, { method: 'PATCH', body: JSON.stringify(data) });
+    },
+
     delete(endpoint) {
         return this._request(endpoint, { method: 'DELETE' });
     }

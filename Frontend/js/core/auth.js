@@ -1,19 +1,21 @@
 /**
  * js/core/auth.js
  * Servicio para manejar la sesión y la identidad del usuario.
+ *
+ * La identidad se persiste en localStorage, pero también puede
+ * reconstruirse desde el access token. Esto evita que una sesión
+ * válida pierda nombre/rol si solo falta la caché europartes_user.
  */
 
 import { CONFIG } from './config.js';
 
 function decodeJwtPayload(accessToken) {
     try {
+        if (!accessToken) return null;
         const payload = accessToken.split('.')[1];
         if (!payload) return null;
 
-        const base64 = payload
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
+        const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
         const padded = base64.padEnd(
             base64.length + (4 - (base64.length % 4)) % 4,
             '='
@@ -26,8 +28,20 @@ function decodeJwtPayload(accessToken) {
     }
 }
 
-export const AuthService = {
+function userFromPayload(payload) {
+    if (!payload) return null;
 
+    return {
+        user_id: payload.user_id ?? null,
+        username: payload.username ?? '',
+        empleado_id: payload.empleado_id ?? null,
+        nombres: payload.nombres ?? '',
+        apellidos: payload.apellidos ?? '',
+        grupo: payload.grupo ?? null
+    };
+}
+
+export const AuthService = {
     setTokens(access, refresh) {
         localStorage.setItem(CONFIG.TOKEN_KEY, access);
 
@@ -39,25 +53,15 @@ export const AuthService = {
     },
 
     setUserFromAccessToken(access) {
-        const payload = decodeJwtPayload(access);
+        const user = userFromPayload(decodeJwtPayload(access));
 
-        if (!payload) {
+        if (!user) {
             localStorage.removeItem(CONFIG.USER_KEY);
-            return;
+            return null;
         }
 
-        const user = {
-            user_id: payload.user_id ?? null,
-            username: payload.username ?? '',
-            nombres: payload.nombres ?? '',
-            apellidos: payload.apellidos ?? '',
-            grupo: payload.grupo ?? null
-        };
-
-        localStorage.setItem(
-            CONFIG.USER_KEY,
-            JSON.stringify(user)
-        );
+        localStorage.setItem(CONFIG.USER_KEY, JSON.stringify(user));
+        return user;
     },
 
     getToken() {
@@ -71,34 +75,36 @@ export const AuthService = {
     getUser() {
         const raw = localStorage.getItem(CONFIG.USER_KEY);
 
-        if (!raw) return null;
-
-        try {
-            return JSON.parse(raw);
-        } catch {
-            return null;
+        if (raw) {
+            try {
+                const user = JSON.parse(raw);
+                if (user && (user.grupo || user.nombres || user.username)) {
+                    return user;
+                }
+            } catch {
+                // Se reconstruye desde el token inmediatamente abajo.
+            }
         }
+
+        // Recuperación de identidad para una sesión ya autenticada.
+        const recoveredUser = userFromPayload(decodeJwtPayload(this.getToken()));
+
+        if (recoveredUser) {
+            localStorage.setItem(CONFIG.USER_KEY, JSON.stringify(recoveredUser));
+            return recoveredUser;
+        }
+
+        return null;
     },
 
-    /**
-     * Devuelve el grupo/rol del usuario autenticado.
-     */
     getRole() {
-        const user = this.getUser();
-        return user?.grupo ?? null;
+        return this.getUser()?.grupo ?? null;
     },
 
-    /**
-     * Comprueba si el usuario pertenece a un rol específico.
-     */
     hasRole(role) {
         return this.getRole() === role;
     },
 
-    /**
-     * Comprueba si el usuario pertenece a cualquiera
-     * de los roles proporcionados.
-     */
     hasAnyRole(roles = []) {
         const role = this.getRole();
         return !!role && roles.includes(role);
@@ -112,7 +118,6 @@ export const AuthService = {
         localStorage.removeItem(CONFIG.TOKEN_KEY);
         localStorage.removeItem(CONFIG.REFRESH_KEY);
         localStorage.removeItem(CONFIG.USER_KEY);
-
         window.location.hash = '#/login';
     }
 };

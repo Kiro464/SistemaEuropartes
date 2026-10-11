@@ -44,6 +44,10 @@ from .services import (
     DespachoVentaError,
     DespachoVentaService,
 )
+from apps.movimientos.compra.services import (
+    InventarioError,
+    InventarioService,
+)
 
 
 class GenerarFacturaView(APIView):
@@ -51,8 +55,9 @@ class GenerarFacturaView(APIView):
     Endpoint transaccional para registrar una venta y generar su factura
     y orden de despacho automáticamente.
 
-    La generación de la factura NO modifica el inventario.
-    El inventario se modifica únicamente cuando el despacho es validado
+    La generación de la factura reserva el stock disponible, pero NO
+    modifica el stock físico ni genera movimientos de Kardex.
+    El stock físico se modifica únicamente cuando el despacho es validado
     por el Oficial de Logística.
     """
 
@@ -115,32 +120,26 @@ class GenerarFacturaView(APIView):
 
                 for item in datos['productos']:
 
-                    producto = get_object_or_404(
-                        Producto,
-                        pk=item['producto_id']
-                    )
-
                     cantidad = item['cantidad']
 
                     # Validación de cantidad.
                     if cantidad <= 0:
                         raise ValueError(
                             f"La cantidad del producto "
-                            f"'{producto.nombre}' debe ser mayor que cero."
+                            f"con ID {item['producto_id']} debe ser "
+                            "mayor que cero."
                         )
 
-                    # Validamos disponibilidad para no permitir facturar
-                    # una cantidad que no podría ser despachada.
-                    #
-                    # IMPORTANTE:
-                    # Esta validación NO modifica el stock.
-                    if producto.stock_actual < cantidad:
-                        raise ValueError(
-                            f"Stock insuficiente para el producto: "
-                            f"{producto.nombre}. "
-                            f"Stock disponible: {producto.stock_actual}. "
-                            f"Cantidad solicitada: {cantidad}."
+                    # La factura compromete el stock disponible para
+                    # evitar sobreventa, pero NO reduce el stock físico.
+                    # StockActual solo cambia al validar el despacho.
+                    try:
+                        producto = InventarioService.reservar_stock(
+                            producto_id=item['producto_id'],
+                            cantidad=cantidad,
                         )
+                    except InventarioError as exc:
+                        raise ValueError(str(exc)) from exc
 
                     precio = producto.precio_unitario
                     subtotal = precio * cantidad
@@ -216,7 +215,7 @@ class GenerarFacturaView(APIView):
                         "orden_despacho_id": orden_despacho.id,
                         "mensaje": (
                             "Venta y factura registradas correctamente. "
-                            "El inventario se actualizará al validar "
+                            "El stock físico se actualizará al validar "
                             "el despacho."
                         )
                     },
@@ -425,6 +424,136 @@ class DetalleFacturaAPIView(APIView):
             "empleado": str(factura.venta.empleado),
             "detalles": serializer.data
         })
+
+
+class DespachosPendientesAPIView(APIView):
+    """
+    Lista las órdenes de despacho de venta que todavía no han sido
+    completadas. El acceso corresponde exclusivamente al Oficial de
+    Logística, que es quien ejecuta el despacho físico.
+    """
+
+    permission_classes = [
+        PuedeValidarDespacho,
+    ]
+
+    @swagger_auto_schema(
+        responses={
+            200: "Órdenes de despacho pendientes.",
+            403: "Usuario sin permisos.",
+        },
+    )
+    def get(self, request):
+        ordenes = (
+            OrdenDespacho.objects
+            .filter(estado=False)
+            .select_related(
+                "factura_venta__venta__cliente",
+                "factura_venta__venta__empleado",
+            )
+            .prefetch_related("detalles__producto")
+            .order_by("fecha_generacion", "id")
+        )
+
+        data = []
+        for orden in ordenes:
+            factura = orden.factura_venta
+            venta = factura.venta
+
+            detalles = []
+            for detalle in orden.detalles.all():
+                pendiente = max(
+                    0,
+                    detalle.cantidad - detalle.cantidad_entregada,
+                )
+                if pendiente <= 0:
+                    continue
+
+                detalles.append({
+                    "id": detalle.id,
+                    "producto_id": detalle.producto_id,
+                    "producto": str(detalle.producto),
+                    "cantidad": detalle.cantidad,
+                    "cantidad_entregada": detalle.cantidad_entregada,
+                    "cantidad_pendiente": pendiente,
+                    "estado_entrega": detalle.estado_entrega,
+                })
+
+            if not detalles:
+                continue
+
+            data.append({
+                "id": orden.id,
+                "fecha_generacion": orden.fecha_generacion,
+                "estado": orden.estado,
+                "factura": {
+                    "id": factura.id,
+                    "fecha_emision": factura.fecha_emision,
+                    "venta_id": venta.id,
+                    "cliente": str(venta.cliente),
+                    "empleado": str(venta.empleado),
+                },
+                "detalles": detalles,
+            })
+
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class DespachosPendientesAPIView(APIView):
+    """Lista órdenes de despacho de venta aún no completadas."""
+    permission_classes = [PuedeValidarDespacho]
+
+    @swagger_auto_schema(
+        responses={
+            200: "Órdenes de despacho pendientes.",
+            403: "Usuario sin permisos.",
+        },
+    )
+    def get(self, request):
+        ordenes = (
+            OrdenDespacho.objects
+            .filter(estado=False)
+            .select_related(
+                "factura_venta__venta__cliente",
+                "factura_venta__venta__empleado",
+            )
+            .prefetch_related("detalles__producto")
+            .order_by("fecha_generacion", "id")
+        )
+        data = []
+        for orden in ordenes:
+            factura = orden.factura_venta
+            venta = factura.venta
+            detalles = []
+            for detalle in orden.detalles.all():
+                pendiente = max(0, detalle.cantidad - detalle.cantidad_entregada)
+                if pendiente <= 0:
+                    continue
+                detalles.append({
+                    "id": detalle.id,
+                    "producto_id": detalle.producto_id,
+                    "producto": str(detalle.producto),
+                    "cantidad": detalle.cantidad,
+                    "cantidad_entregada": detalle.cantidad_entregada,
+                    "cantidad_pendiente": pendiente,
+                    "estado_entrega": detalle.estado_entrega,
+                })
+            if not detalles:
+                continue
+            data.append({
+                "id": orden.id,
+                "fecha_generacion": orden.fecha_generacion,
+                "estado": orden.estado,
+                "factura": {
+                    "id": factura.id,
+                    "fecha_emision": factura.fecha_emision,
+                    "venta_id": venta.id,
+                    "cliente": str(venta.cliente),
+                    "empleado": str(venta.empleado),
+                },
+                "detalles": detalles,
+            })
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class ValidarDespachoAPIView(APIView):

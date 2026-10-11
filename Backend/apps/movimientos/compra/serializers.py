@@ -24,12 +24,17 @@ class DetalleSolicitudCompraSerializer(serializers.ModelSerializer):
         queryset=Producto.objects.filter(estado=True),
         source='producto'
     )
+    producto_nombre = serializers.CharField(
+        source='producto.nombre',
+        read_only=True,
+    )
 
     class Meta:
         model = DetalleSolicitudCompra
         fields = [
             'id',
             'producto_id',
+            'producto_nombre',
             'cantidad',
             'observaciones',
         ]
@@ -90,6 +95,32 @@ class SolicitudCompraSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def update(self, instance, validated_data):
+        """Actualiza una solicitud pendiente y sus detalles de forma atómica.
+
+        La vista ya valida propiedad y estado PENDIENTE. Si no se envían
+        detalles, se conservan los existentes; si se envían, se reemplazan
+        como un conjunto para evitar detalles residuales.
+        """
+        detalles = validated_data.pop('detalles', None)
+        with transaction.atomic():
+            instance.observaciones = validated_data.get(
+                'observaciones', instance.observaciones
+            )
+            instance.save(update_fields=['observaciones'])
+            if detalles is not None:
+                instance.detalles.all().delete()
+                DetalleSolicitudCompra.objects.bulk_create([
+                    DetalleSolicitudCompra(
+                        solicitud=instance,
+                        producto=detalle['producto'],
+                        cantidad=detalle['cantidad'],
+                        observaciones=detalle.get('observaciones'),
+                    )
+                    for detalle in detalles
+                ])
+        return instance
+
     def create(self, validated_data):
         detalles = validated_data.pop('detalles')
 
@@ -140,12 +171,17 @@ class DetalleCompraSerializer(serializers.ModelSerializer):
         queryset=Producto.objects.filter(estado=True),
         source='producto'
     )
+    producto_nombre = serializers.CharField(
+        source='producto.nombre',
+        read_only=True,
+    )
 
     class Meta:
         model = DetalleCompra
         fields = [
             'id',
             'producto_id',
+            'producto_nombre',
             'cantidad',
             'costo_unitario',
             'fecha_registro',
@@ -174,6 +210,10 @@ class CompraSerializer(serializers.ModelSerializer):
     proveedor_id = serializers.PrimaryKeyRelatedField(
         queryset=Proveedor.objects.all(),
         source='proveedor'
+    )
+    proveedor_nombre = serializers.CharField(
+        source='proveedor.nombre',
+        read_only=True,
     )
 
     solicitud_id = serializers.PrimaryKeyRelatedField(
@@ -224,6 +264,7 @@ class CompraSerializer(serializers.ModelSerializer):
             'fecha',
             'empleado_id',
             'proveedor_id',
+            'proveedor_nombre',
             'solicitud_id',
             'estado',
             'fecha_registro',
@@ -587,6 +628,15 @@ class HistorialCompraSerializer(serializers.ModelSerializer):
 
     def get_empleado(self, obj):
         return str(obj.empleado)
+
+    def get_empleado_iniciador(self, obj):
+        return str(obj.empleado_iniciador) if obj.empleado_iniciador else None
+
+    def get_empleado_aprobador(self, obj):
+        return str(obj.empleado_aprobador) if obj.empleado_aprobador else None
+
+    def get_empleado_receptor(self, obj):
+        return str(obj.empleado_receptor) if obj.empleado_receptor else None
 
     def get_factura(self, obj):
         factura = obj.facturas.order_by("-fecha_emision", "-id").first()

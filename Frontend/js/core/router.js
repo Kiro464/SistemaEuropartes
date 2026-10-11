@@ -7,6 +7,7 @@ import { AuthGuard } from './guards.js';
 import { AuthService } from './auth.js';
 import { RBAC } from './rbac.js';
 import { CONFIG } from './config.js';
+import { getErrorMessage } from '../utils/errorMessage.js';
 
 const routes = {
 
@@ -33,6 +34,14 @@ const routes = {
     '#/ventas': () =>
         import('../views/ventas/ventasController.js')
             .then(m => m.VentasController.init()),
+
+    '#/despachos': () =>
+        import('../views/despachos/despachosController.js')
+            .then(m => m.DespachosController.init()),
+
+    '#/solicitudes-compras': () =>
+        import('../views/solicitudesCompras/solicitudesComprasController.js')
+            .then(m => m.SolicitudesComprasController.init()),
 
     '#/reportes': () =>
         import('../views/historial/historialController.js')
@@ -155,7 +164,7 @@ export const Router = {
                     mainContent.innerHTML = `
                         <div class="error-msg">
                             <h2>Error de Carga</h2>
-                            <p>${error.message}</p>
+                            <p>${getErrorMessage(error, 'No fue posible cargar este módulo.')}</p>
                         </div>
                     `;
                 }
@@ -182,30 +191,24 @@ export const Router = {
      * Filtra los elementos del menú según el rol.
      */
     updateNavigation() {
-
         const role = AuthService.getRole();
-
         if (!role) return;
 
-        const links =
-            document.querySelectorAll(
-                '#sidebar-nav .nav-link[data-route]'
-            );
-
+        const links = document.querySelectorAll('#sidebar-nav .nav-link[data-route]');
         links.forEach(link => {
-
             const route = link.dataset.route;
-
-            const allowed =
-                RBAC.canAccessRoute(role, route);
-
+            const allowed = RBAC.canAccessRoute(role, route);
             link.classList.toggle('hidden', !allowed);
-
-            link.setAttribute(
-                'aria-hidden',
-                allowed ? 'false' : 'true'
-            );
+            link.classList.toggle('active', window.location.hash === route);
+            link.setAttribute('aria-hidden', allowed ? 'false' : 'true');
         });
+
+        document.querySelectorAll('#sidebar-nav .nav-section').forEach(section => {
+            const visibleLinks = [...section.querySelectorAll('.nav-link')].some(link => !link.classList.contains('hidden'));
+            section.classList.toggle('hidden', !visibleLinks);
+        });
+
+        RBAC.applyActionVisibility();
     },
 
     init() {

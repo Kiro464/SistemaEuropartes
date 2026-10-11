@@ -1,3 +1,4 @@
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -39,7 +40,15 @@ class ProductoApiView(APIView):
         responses={200: ProductoSerializer(many=True)}
     )
     def get(self, request):
-        productos = Producto.objects.filter(estado=True)
+        productos = Producto.objects.select_related("marca", "proveedor")
+
+        # El catálogo transaccional mantiene los productos activos por defecto.
+        # La pantalla administrativa de Productos puede solicitar también
+        # inactivos mediante include_inactive=true; esto no cambia el comportamiento
+        # de los consumidores que no envían el parámetro (por ejemplo, Ventas).
+        include_inactive = request.query_params.get("include_inactive") == "true"
+        if not include_inactive:
+            productos = productos.filter(estado=True)
 
         search_query = request.query_params.get("search", None)
 
@@ -107,10 +116,9 @@ class ProductoDetailsApiView(APIView):
 
     def get_object(self, pk):
         try:
-            return Producto.objects.get(
-                pk=pk,
-                estado=True
-            )
+            # Los productos inactivos siguen siendo consultables en la pantalla
+            # de catálogo y necesarios para poder reactivarlos.
+            return Producto.objects.select_related("marca", "proveedor").get(pk=pk)
         except Producto.DoesNotExist:
             return None
 
@@ -275,3 +283,4 @@ class ProductoDetailsApiView(APIView):
         return Response(
             status=status.HTTP_204_NO_CONTENT
         )
+

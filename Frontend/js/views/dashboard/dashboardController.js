@@ -2,6 +2,7 @@ import { DashboardView } from './dashboardView.js';
 import { DashboardService } from './dashboardService.js';
 import { StateManager } from '../../core/state.js';
 import { UI } from '../../components/ui.js';
+import { AuthService } from '../../core/auth.js';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -20,27 +21,139 @@ const rangeLabel = {
 export const DashboardController = {
     _onMonedaCambiada: null,
     _requestId: 0,
+    _actualizandoETL: false,
+    _eventsBound: false,
 
     async init() {
         const root = document.getElementById('main-content');
         if (!root) return;
         root.innerHTML = DashboardView.render();
+        this.updateIdentityContext();
         this.bindEvents();
-        await this.loadAllData('mes');
+        // Al abrir el Dashboard se actualiza primero el DW y luego se cargan los indicadores.
+        await this.actualizarDashboard(false);
 
         this._onMonedaCambiada = () => {
             const select = document.getElementById('dash-filtro-tiempo');
             if (select) this.loadAllData(select.value);
         };
+        window.removeEventListener('monedaCambiada', this._onMonedaCambiada);
         window.addEventListener('monedaCambiada', this._onMonedaCambiada);
     },
 
     bindEvents() {
-        document.getElementById('dash-filtro-tiempo')?.addEventListener('change', e => this.loadAllData(e.target.value));
-        document.getElementById('dash-btn-recargar')?.addEventListener('click', () => {
-            const select = document.getElementById('dash-filtro-tiempo');
-            this.loadAllData(select?.value || 'mes', true);
-        });
+        const select = document.getElementById('dash-filtro-tiempo');
+        const button = document.getElementById('dash-btn-recargar');
+        if (!select || !button) return;
+
+        // Los elementos se recrean en cada entrada al módulo, por lo que estos
+        // listeners no se acumulan entre navegaciones.
+        select.addEventListener('change', e => this.loadAllData(e.target.value));
+        button.addEventListener('click', () => this.actualizarDashboard(true));
+        this._eventsBound = true;
+    },
+
+    updateIdentityContext() {
+        const user = AuthService.getUser();
+        const role = user?.grupo || 'Usuario autorizado';
+        const name = [user?.nombres, user?.apellidos].filter(Boolean).join(' ').trim() || user?.username || 'Usuario';
+        const target = document.getElementById('dashboard-user-context');
+        if (!target) return;
+        target.innerHTML = `<i class='bx bx-user-check'></i><span>${esc(name)}</span><strong>${esc(role)}</strong>`;
+    },
+
+    async actualizarDashboard(manual = false) {
+        if (this._actualizandoETL) return;
+
+        const rango = document.getElementById('dash-filtro-tiempo')?.value || 'mes';
+        this._actualizandoETL = true;
+        this.setLoading(true);
+        this.showAlert('Actualizando datos del Data Warehouse…', 'info');
+
+        try {
+            let inicio;
+
+            try {
+                inicio = await DashboardService.ejecutarETL();
+            } catch (error) {
+                // Si otra sesión ya está ejecutando el ETL, se reutiliza esa ejecución.
+                if (error.status !== 409) throw error;
+                inicio = await DashboardService.getUltimaEjecucionETL();
+            }
+
+            const ejecucionKey = inicio?.ejecucion_key ?? inicio?.EjecucionKey;
+            if (!ejecucionKey) {
+                throw new Error('El servidor no devolvió la clave de ejecución ETL.');
+            }
+
+            const estadoFinal = await this.esperarETL(ejecucionKey);
+            const estado = String(estadoFinal?.estado ?? estadoFinal?.Estado ?? '').toUpperCase();
+
+            if (estado !== 'EXITOSA') {
+                throw new Error(
+                    estadoFinal?.mensaje ??
+                    estadoFinal?.Mensaje ??
+                    `La ejecución ETL terminó con estado ${estado || 'DESCONOCIDO'}.`
+                );
+            }
+
+            // El ETL terminó correctamente: ahora sí se consultan los indicadores.
+            await this.loadAllData(rango, false);
+
+            if (manual) {
+                UI.showToast('Dashboard actualizado correctamente', 'success');
+            }
+        } catch (error) {
+            console.error('Error actualizando Dashboard:', error);
+
+            // El fallo del ETL no borra ni invalida el último DW disponible.
+            try {
+                await this.loadAllData(rango, false);
+            } catch (loadError) {
+                console.error('Error cargando los últimos datos del Dashboard:', loadError);
+            }
+
+            this.showAlert(
+                'No se pudo actualizar el Data Warehouse. Se muestran los últimos datos disponibles.',
+                'warning'
+            );
+
+            if (manual) {
+                UI.showToast(
+                    error.message || 'No fue posible actualizar los datos del Dashboard.',
+                    'error'
+                );
+            }
+        } finally {
+            this._actualizandoETL = false;
+            this.setLoading(false);
+        }
+    },
+
+    async esperarETL(ejecucionKey) {
+        const intervaloMs = 2000;
+        const timeoutMs = 120000;
+        const inicio = Date.now();
+
+        while (Date.now() - inicio < timeoutMs) {
+            const estado = await DashboardService.getEstadoETLEjecucion(ejecucionKey);
+            const estadoActual = String(estado?.estado ?? estado?.Estado ?? '').toUpperCase();
+
+            if (!['INICIADA', 'EN_PROCESO'].includes(estadoActual)) {
+                return estado;
+            }
+
+            this.showAlert(
+                estadoActual === 'EN_PROCESO'
+                    ? 'Procesando ETL… actualizando Data Warehouse.'
+                    : 'Iniciando actualización del Data Warehouse…',
+                'info'
+            );
+
+            await new Promise(resolve => setTimeout(resolve, intervaloMs));
+        }
+
+        throw new Error('La actualización del Data Warehouse superó el tiempo máximo de espera.');
     },
 
     async loadAllData(rango, manual = false) {

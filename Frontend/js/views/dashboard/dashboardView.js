@@ -7,6 +7,7 @@ export const DashboardView = {
                         <div class="dashboard-eyebrow"><i class='bx bx-pulse'></i> Data Warehouse · Vista ejecutiva</div>
                         <h1>Dashboard Analítico</h1>
                         <p>Una lectura integrada de ventas, compras, inventario y actividad operativa.</p>
+                        <div id="dashboard-user-context" class="dashboard-user-context" aria-label="Usuario actual del dashboard"></div>
                     </div>
                     <div class="dashboard-controls">
                         <label for="dash-filtro-tiempo">Periodo de análisis</label>
