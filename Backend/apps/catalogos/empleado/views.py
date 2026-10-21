@@ -34,7 +34,14 @@ class EmpleadoApiView(APIView):
         responses={200: EmpleadoSerializer(many=True)}
     )
     def get(self, request):
-        empleados = Empleado.objects.filter(estado=True)
+        # Oficial de Logística consulta solo empleados activos. Soporte TI puede
+        # incluir inactivos para reactivarlos desde el catálogo administrativo.
+        puede_ver_inactivos = request.user.groups.filter(name="Soporte TI").exists()
+        incluir_inactivos = (
+            puede_ver_inactivos and
+            request.query_params.get("incluir_inactivos", "").lower() in ("1", "true", "si", "sí")
+        )
+        empleados = Empleado.objects.all() if incluir_inactivos else Empleado.objects.filter(estado=True)
 
         search_query = request.query_params.get("search", None)
 
@@ -104,10 +111,10 @@ class EmpleadoDetailsApiView(APIView):
 
     def get_object(self, pk):
         try:
-            return Empleado.objects.get(
-                pk=pk,
-                estado=True
-            )
+            queryset = Empleado.objects.all()
+            if not self.request.user.groups.filter(name="Soporte TI").exists():
+                queryset = queryset.filter(estado=True)
+            return queryset.get(pk=pk)
         except Empleado.DoesNotExist:
             return None
 

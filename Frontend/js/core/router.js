@@ -27,9 +27,29 @@ const routes = {
         import('../views/clientes/clientesController.js')
             .then(m => m.ClientesController.init()),
 
+    '#/marcas': () =>
+        import('../views/marcas/marcasController.js')
+            .then(m => m.MarcasController.init()),
+
+    '#/proveedores': () =>
+        import('../views/proveedores/proveedoresController.js')
+            .then(m => m.ProveedoresController.init()),
+
+    '#/paises': () =>
+        import('../views/paises/paisesController.js')
+            .then(m => m.PaisesController.init()),
+
+    '#/departamentos': () =>
+        import('../views/departamentos/departamentosController.js')
+            .then(m => m.DepartamentosController.init()),
+
     '#/empleados': () =>
         import('../views/empleados/empleadosController.js')
             .then(m => m.EmpleadosController.init()),
+
+    '#/usuarios': () =>
+        import('../views/usuarios/usuariosController.js')
+            .then(m => m.UsuariosController.init()),
 
     '#/ventas': () =>
         import('../views/ventas/ventasController.js')
@@ -43,7 +63,15 @@ const routes = {
         import('../views/solicitudesCompras/solicitudesComprasController.js')
             .then(m => m.SolicitudesComprasController.init()),
 
-    '#/reportes': () =>
+    '#/historial/ventas': () =>
+        import('../views/historial/historialController.js')
+            .then(m => m.HistorialController.init()),
+
+    '#/historial/compras': () =>
+        import('../views/historial/historialController.js')
+            .then(m => m.HistorialController.init()),
+
+    '#/inventario/kardex': () =>
         import('../views/historial/historialController.js')
             .then(m => m.HistorialController.init()),
 
@@ -86,6 +114,16 @@ export const Router = {
 
         if (currentHash === '#' || currentHash === '') {
             currentHash = CONFIG.DEFAULT_AUTH_ROUTE;
+        }
+
+        // Compatibilidad con enlaces antiguos: normalizar a la única ruta vigente.
+        if (currentHash === '#/reportes') {
+            currentHash = '#/historial/ventas';
+            window.history.replaceState(
+                null,
+                '',
+                `${window.location.pathname}${window.location.search}#/historial/ventas`
+            );
         }
 
         // -----------------------------------------------

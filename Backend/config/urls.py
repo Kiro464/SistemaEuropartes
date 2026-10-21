@@ -19,9 +19,7 @@ from django.urls import path, include
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from rest_framework_simplejwt.views import TokenRefreshView
-
-from apps.seguridad.usuarios.views import EuropartesTokenObtainPairView
+from apps.seguridad.usuarios.views import EuropartesTokenObtainPairView, EuropartesTokenRefreshView
 
 
 # Configuración de la documentación de la API (Swagger)
@@ -41,7 +39,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     # Única fuente oficial de JWT (el frontend usa estas rutas)
     path('api/token/', EuropartesTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/refresh/', EuropartesTokenRefreshView.as_view(), name='token_refresh'),
 
     # Documentación API
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

@@ -1,166 +1,220 @@
 import { EmpleadosView } from './empleadosView.js';
 import { EmpleadosService } from './empleadosService.js';
 import { UI } from '../../components/ui.js';
+import { RBAC } from '../../core/rbac.js';
+import { AuthService } from '../../core/auth.js';
+import { escapeHtml } from '../../utils/escapeHtml.js';
+import { getErrorMessage } from '../../utils/errorMessage.js';
 import { DepartamentosController } from '../departamentos/departamentosController.js';
 
 export const EmpleadosController = {
-    debounceTimer: null,
     departamentos: [],
+    debounceTimer: null,
+    _loadSequence: 0,
+    _saving: false,
+    can(action) { return RBAC.can(AuthService.getRole(), action); },
+    canManage() { return this.can('empleado.gestionar'); },
 
     async init() {
         const root = document.getElementById('main-content');
         if (!root) return;
-        root.innerHTML = EmpleadosView.render();
-        await this.loadDependencias(); 
+        root.innerHTML = EmpleadosView.render(this.canManage());
+        this.bindEvents(root);
+        await this.loadDependencies();
         await this.loadTable();
-        this.bindEvents();
     },
 
-    async loadDependencias() {
+    async loadDependencies() {
         try {
-            const deptoData = await EmpleadosService.getDepartamentos();
-            this.departamentos = deptoData.results || deptoData;
-
-            document.getElementById('emp_departamento').innerHTML = '<option value="">Seleccione...</option>' + 
-                this.departamentos.map(d => `<option value="${d.id}">${d.nombre}</option>`).join('');
-        } catch (error) { console.error("Error cargando departamentos", error); }
+            const data = await EmpleadosService.getDepartamentos();
+            this.departamentos = Array.isArray(data) ? data : (data?.results || []);
+            const select = document.getElementById('emp_departamento');
+            if (select) select.innerHTML = '<option value="">Seleccione un departamento…</option>' + this.departamentos.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.nombre)}</option>`).join('');
+        } catch (error) {
+            console.error('[Empleados] No fue posible cargar departamentos:', error);
+            UI.showToast(getErrorMessage(error, 'No fue posible cargar los departamentos.'), 'error');
+        }
     },
 
-    async loadTable(search = '') {
+    async loadTable(search = document.getElementById('search-empleado')?.value?.trim() || '') {
         const container = document.getElementById('empleados-table-container');
+        if (!container) return;
+        const sequence = ++this._loadSequence;
+        container.innerHTML = '<div class="catalog-state" role="status" aria-live="polite">Cargando empleados…</div>';
         try {
-            const data = await EmpleadosService.getAll(search);
-            const records = data.results || data;
-            if (!records || records.length === 0) return container.innerHTML = `<div class="text-center" style="padding: 2rem;">No hay empleados.</div>`;
-
-            let rows = records.map(e => {
-                const deptoObj = this.departamentos.find(d => d.id === e.departamento);
-                return `
-                <tr style="opacity: ${e.estado ? '1' : '0.5'}">
-                    <td><span style="font-family: monospace; color: var(--primary-color);">#${e.id}</span></td>
-                    <td><strong>${e.nombres} ${e.apellidos}</strong></td>
-                    <td>${e.cargo}</td>
-                    <td>${deptoObj ? deptoObj.nombre : '-'}</td>
-                    <td>${e.estado ? '<span style="color:var(--success-color);">Activo</span>' : '<span style="color:var(--text-secondary);">Inactivo</span>'}</td>
-                    <td>
-                        <div class="table-actions">
-                            <button class="btn-icon btn-view" data-id="${e.id}" title="Ver Detalle"><i class='bx bx-show'></i></button>
-                            <button class="btn-icon btn-edit" data-id="${e.id}" title="Editar"><i class='bx bx-edit'></i></button>
-                            ${e.estado ? `<button class="btn-icon btn-delete" data-id="${e.id}" title="Desactivar"><i class='bx bx-trash' style="color: var(--danger-color);"></i></button>` : `<button class="btn-icon btn-activate" data-id="${e.id}" title="Activar"><i class='bx bx-check-circle' style="color: var(--success-color);"></i></button>`}
-                        </div>
-                    </td>
-                </tr>`;
+            const includeInactive = this.canManage() && !!document.getElementById('emp-incluir-inactivos')?.checked;
+            const data = await EmpleadosService.getAll(search, includeInactive);
+            if (sequence !== this._loadSequence) return;
+            const records = Array.isArray(data) ? data : (data?.results || []);
+            if (!records.length) {
+                container.innerHTML = '<div class="catalog-state">No hay empleados que coincidan con la búsqueda.</div>';
+                return;
+            }
+            const canView = this.can('empleado.ver');
+            const canManage = this.canManage();
+            const rows = records.map(e => {
+                const department = this.departamentos.find(d => String(d.id) === String(e.departamento));
+                const fullName = `${e.nombres || ''} ${e.apellidos || ''}`.trim();
+                return `<tr class="${e.estado ? '' : 'row-inactive'}"><td>${escapeHtml(e.id)}</td><td><strong>${escapeHtml(fullName)}</strong><div class="table-secondary-text">${escapeHtml(e.correo || '')}</div></td><td>${escapeHtml(e.cargo || '—')}</td><td>${escapeHtml(department?.nombre || e.departamento_nombre || '—')}</td><td><span class="status-pill ${e.estado ? 'is-active' : 'is-inactive'}">${e.estado ? 'Activo' : 'Inactivo'}</span></td><td><div class="table-actions">${canView ? `<button type="button" class="btn-icon btn-view-employee" data-id="${escapeHtml(e.id)}" aria-label="Consultar a ${escapeHtml(fullName)}" title="Consultar"><i class="bx bx-show" aria-hidden="true"></i></button>` : ''}${canManage ? `<button type="button" class="btn-icon btn-edit-employee" data-id="${escapeHtml(e.id)}" aria-label="Editar a ${escapeHtml(fullName)}" title="Editar"><i class="bx bx-edit" aria-hidden="true"></i></button><button type="button" class="btn-icon ${e.estado ? 'btn-deactivate-employee' : 'btn-activate-employee'}" data-id="${escapeHtml(e.id)}" aria-label="${e.estado ? 'Desactivar' : 'Activar'} a ${escapeHtml(fullName)}" title="${e.estado ? 'Desactivar' : 'Activar'}"><i class="bx ${e.estado ? 'bx-user-x' : 'bx-user-check'}" aria-hidden="true"></i></button>` : ''}</div></td></tr>`;
             }).join('');
-            container.innerHTML = `<table class="euro-table"><thead><tr><th>ID</th><th>Empleado</th><th>Cargo</th><th>Departamento</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
-
-            document.querySelectorAll('.btn-view').forEach(b => b.addEventListener('click', (ev) => this.openModal(ev.currentTarget.dataset.id, true)));
-            document.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', (ev) => this.openModal(ev.currentTarget.dataset.id, false)));
-            document.querySelectorAll('.btn-delete').forEach(b => b.addEventListener('click', (ev) => this.toggleStatus(ev.currentTarget.dataset.id, false)));
-            document.querySelectorAll('.btn-activate').forEach(b => b.addEventListener('click', (ev) => this.toggleStatus(ev.currentTarget.dataset.id, true)));
-        } catch (error) { container.innerHTML = 'Error de red.'; }
+            container.innerHTML = `<table class="euro-table"><thead><tr><th scope="col">ID</th><th scope="col">Empleado</th><th scope="col">Cargo</th><th scope="col">Departamento</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
+        } catch (error) {
+            if (sequence !== this._loadSequence) return;
+            console.error('[Empleados] Falló la carga de registros:', error);
+            UI.renderSectionError(container, getErrorMessage(error, 'No fue posible cargar los empleados.'), () => this.loadTable());
+        }
     },
 
-    bindEvents() {
-        document.getElementById('search-empleado').addEventListener('input', (e) => {
+    bindEvents(root) {
+        root.querySelector('#search-empleado')?.addEventListener('input', () => {
             clearTimeout(this.debounceTimer);
-            this.debounceTimer = setTimeout(() => this.loadTable(e.target.value.trim()), 500);
+            this.debounceTimer = setTimeout(() => this.loadTable(), 300);
         });
-
-        const modal = document.getElementById('empleado-modal');
-        const closeModal = () => { modal.classList.remove('show'); document.getElementById('form-empleado').reset(); };
-        
-        document.getElementById('btn-nuevo-empleado').addEventListener('click', () => {
-            document.getElementById('emp_id').value = '';
-            this.setFormReadOnly(false);
-            document.getElementById('empleado-modal-title').innerText = 'Nuevo Empleado';
-            modal.classList.add('show');
+        root.querySelector('#emp-incluir-inactivos')?.addEventListener('change', () => this.loadTable());
+        root.querySelector('#btn-nuevo-empleado')?.addEventListener('click', () => this.openCreateModal());
+        root.querySelector('#btn-close-empleado-modal')?.addEventListener('click', () => this.closeModal());
+        root.querySelector('#btn-cancel-empleado')?.addEventListener('click', () => this.closeModal());
+        root.querySelector('#empleado-modal')?.addEventListener('click', event => { if (event.target.id === 'empleado-modal') this.closeModal(); });
+        root.querySelector('#form-empleado')?.addEventListener('submit', event => { event.preventDefault(); this.save(); });
+        root.querySelector('#empleados-table-container')?.addEventListener('click', event => {
+            const button = event.target.closest('button[data-id]');
+            if (!button) return;
+            const id = button.dataset.id;
+            if (button.classList.contains('btn-view-employee')) this.openModal(id, true);
+            else if (button.classList.contains('btn-edit-employee') && this.canManage()) this.openModal(id, false);
+            else if (button.classList.contains('btn-deactivate-employee') && this.canManage()) this.toggleStatus(id, false);
+            else if (button.classList.contains('btn-activate-employee') && this.canManage()) this.toggleStatus(id, true);
         });
-        
-        document.getElementById('btn-close-empleado-modal').addEventListener('click', closeModal);
-        document.getElementById('btn-cancel-empleado').addEventListener('click', closeModal);
-
-        /* ========================================================= */
-        /* == INTEGRACIÓN MODULAR EXACTA: DEPARTAMENTOS ============ */
-        /* ========================================================= */
-        document.getElementById('btn-add-departamento')?.addEventListener('click', () => {
-            DepartamentosController.onSuccess = async (newId) => { await this.loadDependencias(); document.getElementById('emp_departamento').value = newId; };
+        root.querySelector('#btn-add-departamento')?.addEventListener('click', () => {
+            if (!this.canManage()) return;
+            DepartamentosController.onSuccess = async newId => { await this.loadDependencies(); document.getElementById('emp_departamento').value = newId; };
             DepartamentosController.openModal();
         });
-        document.getElementById('btn-view-departamento').addEventListener('click', () => {
-            const id = document.getElementById('emp_departamento').value;
-            if(!id) return UI.showToast('Seleccione un departamento', 'error');
+        root.querySelector('#btn-view-departamento')?.addEventListener('click', () => {
+            const id = document.getElementById('emp_departamento')?.value;
+            if (!id) return UI.showToast('Seleccione un departamento.', 'error');
             DepartamentosController.openModal(id, true);
         });
-        document.getElementById('btn-edit-departamento').addEventListener('click', () => {
-            const id = document.getElementById('emp_departamento').value;
-            if(!id) return UI.showToast('Seleccione un departamento', 'error');
-            DepartamentosController.onSuccess = () => this.loadDependencias();
+        root.querySelector('#btn-edit-departamento')?.addEventListener('click', () => {
+            if (!this.canManage()) return;
+            const id = document.getElementById('emp_departamento')?.value;
+            if (!id) return UI.showToast('Seleccione un departamento.', 'error');
+            DepartamentosController.onSuccess = async () => this.loadDependencies();
             DepartamentosController.openModal(id, false);
-        });
-
-        document.getElementById('btn-save-empleado').addEventListener('click', async () => {
-            const form = document.getElementById('form-empleado');
-            if (!form.checkValidity()) { form.reportValidity(); return; }
-
-            const id = document.getElementById('emp_id').value;
-            const payload = {
-                nombres: document.getElementById('emp_nombres').value.trim(),
-                apellidos: document.getElementById('emp_apellidos').value.trim(),
-                cargo: document.getElementById('emp_cargo').value.trim(),
-                telefono: document.getElementById('emp_telefono').value.trim(),
-                correo: document.getElementById('emp_correo').value.trim(),
-                departamento: parseInt(document.getElementById('emp_departamento').value)
-            };
-            if(!id) payload.estado = true;
-
-            UI.showGlobalLoader();
-            try {
-                if (id) await EmpleadosService.update(id, payload);
-                else await EmpleadosService.create(payload);
-                UI.showToast(`Empleado guardado`, 'success');
-                closeModal();
-                this.loadTable(document.getElementById('search-empleado').value);
-            } catch (error) { UI.showToast('Error', 'error'); } finally { UI.hideGlobalLoader(); }
         });
     },
 
-    setFormReadOnly(isReadOnly) {
+    openCreateModal() {
+        if (!this.canManage()) return UI.showToast('No tienes permisos para crear empleados.', 'error');
         const form = document.getElementById('form-empleado');
-        Array.from(form.elements).forEach(el => { if(el.type !== 'hidden') el.disabled = isReadOnly; });
-        document.getElementById('btn-save-empleado').style.display = isReadOnly ? 'none' : 'block';
-        
-        document.getElementById('btn-view-departamento').disabled = false;
-        document.querySelectorAll('#btn-add-departamento, #btn-edit-departamento').forEach(b => {
-            b.style.display = isReadOnly ? 'none' : 'inline-flex';
-            b.disabled = false;
-        });
+        form?.reset();
+        document.getElementById('emp_id').value = '';
+        document.getElementById('emp_estado').value = 'true';
+        document.getElementById('empleado-modal-title').textContent = 'Nuevo empleado';
+        document.getElementById('empleado-form-error').hidden = true;
+        this.setReadOnly(false);
+        document.getElementById('empleado-modal').classList.add('show');
+        document.getElementById('emp_nombres')?.focus();
     },
 
     async openModal(id, readOnly = false) {
+        if (readOnly && !this.can('empleado.ver')) return UI.showToast('No tienes permisos para consultar empleados.', 'error');
+        if (!readOnly && !this.canManage()) return UI.showToast('No tienes permisos para editar empleados.', 'error');
         UI.showGlobalLoader();
         try {
-            const emp = await EmpleadosService.getById(id);
-            document.getElementById('emp_id').value = emp.id;
-            document.getElementById('emp_nombres').value = emp.nombres;
-            document.getElementById('emp_apellidos').value = emp.apellidos;
-            document.getElementById('emp_cargo').value = emp.cargo;
-            document.getElementById('emp_telefono').value = emp.telefono;
-            document.getElementById('emp_correo').value = emp.correo;
-            document.getElementById('emp_departamento').value = emp.departamento;
-            
-            this.setFormReadOnly(readOnly);
-            document.getElementById('empleado-modal-title').innerText = readOnly ? 'Detalle de Empleado' : 'Editar Empleado';
+            const employee = await EmpleadosService.getById(id);
+            document.getElementById('form-empleado')?.reset();
+            document.getElementById('emp_id').value = employee.id;
+            document.getElementById('emp_estado').value = employee.estado ? 'true' : 'false';
+            for (const [field, value] of Object.entries({ emp_nombres: employee.nombres, emp_apellidos: employee.apellidos, emp_cargo: employee.cargo, emp_telefono: employee.telefono, emp_correo: employee.correo, emp_departamento: employee.departamento })) {
+                const input = document.getElementById(field);
+                if (input) input.value = value ?? '';
+            }
+            document.getElementById('empleado-modal-title').textContent = readOnly ? 'Detalle de empleado' : 'Editar empleado';
+            document.getElementById('empleado-form-error').hidden = true;
+            this.setReadOnly(readOnly);
             document.getElementById('empleado-modal').classList.add('show');
-        } catch (error) { UI.showToast('Error', 'error'); } finally { UI.hideGlobalLoader(); }
+        } catch (error) {
+            console.error('[Empleados] No fue posible consultar el registro:', error);
+            UI.showToast(getErrorMessage(error, 'No fue posible consultar el empleado.'), 'error');
+        } finally { UI.hideGlobalLoader(); }
+    },
+
+    setReadOnly(readOnly) {
+        const form = document.getElementById('form-empleado');
+        const disableWrites = readOnly || !this.canManage();
+        Array.from(form?.elements || []).forEach(element => {
+            if (element.type !== 'hidden') element.disabled = disableWrites;
+        });
+        const save = document.getElementById('btn-save-empleado');
+        if (save) save.hidden = disableWrites;
+        const addDept = document.getElementById('btn-add-departamento');
+        const editDept = document.getElementById('btn-edit-departamento');
+        if (addDept) addDept.hidden = disableWrites;
+        if (editDept) editDept.hidden = disableWrites;
+        const viewDept = document.getElementById('btn-view-departamento');
+        if (viewDept) viewDept.disabled = false;
+        const close = document.getElementById('btn-close-empleado-modal');
+        if (close) close.disabled = false;
+    },
+
+    async save() {
+        if (this._saving) return;
+        if (!this.canManage()) return UI.showToast('No tienes permisos para guardar empleados.', 'error');
+        const form = document.getElementById('form-empleado');
+        if (!form?.reportValidity()) return;
+        const id = document.getElementById('emp_id').value;
+        const payload = {
+            nombres: document.getElementById('emp_nombres').value.trim(),
+            apellidos: document.getElementById('emp_apellidos').value.trim(),
+            cargo: document.getElementById('emp_cargo').value.trim(),
+            telefono: document.getElementById('emp_telefono').value.trim(),
+            correo: document.getElementById('emp_correo').value.trim(),
+            departamento: Number(document.getElementById('emp_departamento').value),
+            estado: document.getElementById('emp_estado').value === 'true',
+        };
+        const error = document.getElementById('empleado-form-error');
+        error.hidden = true;
+        const saveButton = document.getElementById('btn-save-empleado');
+        this._saving = true;
+        if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); }
+        UI.showGlobalLoader();
+        try {
+            if (id) await EmpleadosService.update(id, payload);
+            else await EmpleadosService.create(payload);
+            UI.showToast('Empleado guardado correctamente.', 'success');
+            this.closeModal();
+            await this.loadTable();
+        } catch (exception) {
+            console.error('[Empleados] No fue posible guardar el registro:', exception);
+            const message = getErrorMessage(exception, 'No fue posible guardar el empleado.');
+            error.textContent = message;
+            error.hidden = false;
+            UI.showToast(message, 'error');
+        } finally {
+            UI.hideGlobalLoader();
+            this._saving = false;
+            if (saveButton?.isConnected) { saveButton.disabled = false; saveButton.removeAttribute('aria-busy'); }
+        }
     },
 
     async toggleStatus(id, newStatus) {
-        if (!confirm(`¿Desea ${newStatus ? 'ACTIVAR' : 'INACTIVAR'} este empleado?`)) return;
+        if (!this.canManage()) return UI.showToast('No tienes permisos para cambiar el estado de empleados.', 'error');
+        const action = newStatus ? 'activar' : 'desactivar';
+        if (!confirm(`¿Deseas ${action} este empleado?`)) return;
         UI.showGlobalLoader();
         try {
-            await EmpleadosService.update(id, { estado: newStatus }, 'PATCH');
-            UI.showToast(`Empleado actualizado`, 'success');
-            this.loadTable();
-        } catch (error) { UI.showToast('Error', 'error'); } finally { UI.hideGlobalLoader(); }
+            await EmpleadosService.updateStatus(id, newStatus);
+            UI.showToast(`Empleado ${newStatus ? 'activado' : 'desactivado'} correctamente.`, 'success');
+            await this.loadTable();
+        } catch (error) {
+            console.error('[Empleados] No fue posible cambiar el estado:', error);
+            UI.showToast(getErrorMessage(error, 'No fue posible cambiar el estado del empleado.'), 'error');
+        } finally { UI.hideGlobalLoader(); }
+    },
+
+    closeModal() {
+        document.getElementById('empleado-modal')?.classList.remove('show');
+        document.getElementById('form-empleado')?.reset();
     }
 };

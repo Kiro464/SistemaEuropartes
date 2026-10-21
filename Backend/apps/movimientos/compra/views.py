@@ -1,8 +1,11 @@
 from decimal import Decimal
 from datetime import date
 
+import openpyxl
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
 from django.utils import timezone
 
 from rest_framework import status
@@ -48,6 +51,54 @@ from .serializers import (
     MovimientoInventarioSerializer,
     HistorialCompraSerializer,
 )
+
+def _excel_text(value):
+    """Evita que texto procedente de datos se interprete como fórmula Excel."""
+    if value is None:
+        return ""
+    text = str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
+
+
+def _respuesta_excel(nombre, encabezados, filas, titulo):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = titulo[:31]
+    sheet.append(encabezados)
+    for fila in filas:
+        sheet.append(fila)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column_cells in sheet.columns:
+        max_length = max((len(str(cell.value or "")) for cell in column_cells), default=0)
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 48)
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="{nombre}_{date.today().isoformat()}.xlsx"'
+    )
+    workbook.save(response)
+    return response
+
+
+def _coincide_busqueda(registro, termino, campos):
+    if not termino:
+        return True
+    termino = termino.casefold()
+    valores = []
+    for campo in campos:
+        valor = registro.get(campo)
+        if isinstance(valor, dict):
+            valores.extend(str(item) for item in valor.values() if item is not None)
+        elif isinstance(valor, list):
+            valores.extend(str(item) for item in valor)
+        elif valor is not None:
+            valores.append(str(valor))
+    return any(termino in valor.casefold() for valor in valores)
+
 
 def obtener_empleado_usuario(usuario):
     try:
@@ -1225,6 +1276,46 @@ class MovimientoInventarioListAPIView(APIView):
 
         return Response(serializer.data)
 
+
+class ExportarKardexExcelAPIView(MovimientoInventarioListAPIView):
+    """Exporta los mismos movimientos filtrados y autorizados que consulta el Kardex."""
+
+    def get(self, request, *args, **kwargs):
+        consulta = super().get(request, *args, **kwargs)
+        if consulta.status_code != status.HTTP_200_OK:
+            return consulta
+        registros = list(consulta.data)
+        termino = request.query_params.get("busqueda", "").strip()
+        campos_busqueda = (
+            "id", "producto_id", "producto_nombre", "tipo_movimiento",
+            "tipo_movimiento_display", "referencia_tipo", "referencia_id",
+            "empleado_nombre", "observaciones", "fecha",
+        )
+        registros = [r for r in registros if _coincide_busqueda(r, termino, campos_busqueda)]
+        if not registros:
+            return Response({"detail": "No hay movimientos que coincidan con los filtros para exportar."}, status=status.HTTP_404_NOT_FOUND)
+
+        filas = []
+        for r in registros:
+            tipo = r.get("tipo_movimiento")
+            cantidad = r.get("cantidad")
+            entrada = abs(cantidad) if tipo == MovimientoInventario.TIPO_ENTRADA_COMPRA else None
+            salida = abs(cantidad) if tipo == MovimientoInventario.TIPO_SALIDA_VENTA else None
+            filas.append([
+                r.get("id"), _excel_text(r.get("fecha")), r.get("producto_id"),
+                _excel_text(r.get("producto_nombre")), _excel_text(r.get("tipo_movimiento_display") or tipo),
+                entrada, salida, r.get("stock_anterior"), r.get("stock_posterior"),
+                _excel_text(r.get("referencia_tipo")), r.get("referencia_id"),
+                r.get("empleado_id"), _excel_text(r.get("empleado_nombre")),
+                _excel_text(r.get("observaciones")),
+            ])
+        return _respuesta_excel(
+            "Kardex", ["ID movimiento", "Fecha y hora", "ID producto", "Producto", "Tipo de movimiento",
+            "Entrada", "Salida", "Stock anterior registrado", "Stock posterior registrado", "Tipo de referencia",
+            "ID referencia", "ID responsable", "Responsable", "Observaciones"], filas, "Kardex"
+        )
+
+
 class HistorialComprasAPIView(APIView):
     permission_classes = [
         IsAuthenticated,
@@ -1316,26 +1407,34 @@ class HistorialComprasAPIView(APIView):
         # ---------------------------------------------------------
         # Filtro por proveedor
         # ---------------------------------------------------------
-        proveedor_id = request.query_params.get(
-            "proveedor_id"
-        )
-
+        proveedor_id = request.query_params.get("proveedor_id")
         if proveedor_id:
-            queryset = queryset.filter(
-                proveedor_id=proveedor_id
-            )
+            try:
+                proveedor_id = int(proveedor_id)
+                if proveedor_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "proveedor_id debe ser un entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(proveedor_id=proveedor_id)
 
         # ---------------------------------------------------------
         # Filtro por empleado
         # ---------------------------------------------------------
-        empleado_id = request.query_params.get(
-            "empleado_id"
-        )
-
+        empleado_id = request.query_params.get("empleado_id")
         if empleado_id:
-            queryset = queryset.filter(
-                empleado_id=empleado_id
-            )
+            try:
+                empleado_id = int(empleado_id)
+                if empleado_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "empleado_id debe ser un entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(empleado_id=empleado_id)
 
         # ---------------------------------------------------------
         # Filtro por estado
@@ -1374,21 +1473,32 @@ class HistorialComprasAPIView(APIView):
         )
 
         if producto_id:
-            queryset = queryset.filter(
-                detalles__producto_id=producto_id
-            ).distinct()
+            try:
+                producto_id = int(producto_id)
+                if producto_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "producto_id debe ser un entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(detalles__producto_id=producto_id).distinct()
 
         # ---------------------------------------------------------
         # Filtro por solicitud
         # ---------------------------------------------------------
-        solicitud_id = request.query_params.get(
-            "solicitud_id"
-        )
-
+        solicitud_id = request.query_params.get("solicitud_id")
         if solicitud_id:
-            queryset = queryset.filter(
-                solicitud_id=solicitud_id
-            )
+            try:
+                solicitud_id = int(solicitud_id)
+                if solicitud_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "solicitud_id debe ser un entero positivo."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(solicitud_id=solicitud_id)
 
         # ---------------------------------------------------------
         # Orden: más reciente primero
@@ -1406,6 +1516,53 @@ class HistorialComprasAPIView(APIView):
         return Response(
             serializer.data,
             status=status.HTTP_200_OK,
+        )
+
+
+class ExportarHistorialComprasExcelAPIView(HistorialComprasAPIView):
+    """Exporta todas las compras que coinciden con los filtros del historial."""
+
+    def get(self, request):
+        consulta = super().get(request)
+        if consulta.status_code != status.HTTP_200_OK:
+            return consulta
+        registros = list(consulta.data)
+        termino = request.query_params.get("busqueda", "").strip()
+        campos_busqueda = (
+            "id", "fecha", "proveedor", "empleado", "estado", "solicitud_id",
+            "solicitud_estado", "empleado_iniciador", "empleado_aprobador", "empleado_receptor", "detalles",
+        )
+        registros = [r for r in registros if _coincide_busqueda(r, termino, campos_busqueda)]
+        if not registros:
+            return Response({"detail": "No hay compras que coincidan con los filtros para exportar."}, status=status.HTTP_404_NOT_FOUND)
+
+        filas = []
+        for r in registros:
+            factura = r.get("factura") or {}
+            detalles = r.get("detalles") or []
+            resumen_productos = "; ".join(
+                f"{d.get('producto', 'Producto')} x {d.get('cantidad', '')}"
+                + (f" @ {d.get('costo_unitario')}" if d.get("costo_unitario") is not None else "")
+                for d in detalles
+            )
+            filas.append([
+                r.get("id"), _excel_text(r.get("fecha")), _excel_text(r.get("proveedor")),
+                _excel_text(r.get("empleado")), _excel_text(r.get("estado")),
+                r.get("solicitud_id"), _excel_text(r.get("solicitud_estado")),
+                _excel_text(r.get("empleado_iniciador")), _excel_text(r.get("fecha_inicio")),
+                _excel_text(r.get("empleado_aprobador")), _excel_text(r.get("fecha_aprobacion")),
+                _excel_text(r.get("empleado_receptor")), _excel_text(r.get("fecha_recepcion")),
+                factura.get("id"), _excel_text(factura.get("fecha_emision")),
+                float(factura["total"]) if factura.get("total") is not None else None,
+                float(factura["iva"]) if factura.get("iva") is not None else None,
+                float(factura["total_con_iva"]) if factura.get("total_con_iva") is not None else None,
+                _excel_text(resumen_productos),
+            ])
+        return _respuesta_excel(
+            "Historial_Compras", ["ID compra", "Fecha", "Proveedor", "Responsable", "Estado compra",
+            "ID solicitud", "Estado solicitud", "Iniciada por", "Fecha de inicio", "Aprobada por",
+            "Fecha de aprobación", "Recibida por", "Fecha de recepción", "ID factura", "Fecha de factura",
+            "Subtotal factura", "IVA factura", "Total con IVA", "Productos y cantidades"], filas, "Historial compras"
         )
 
 

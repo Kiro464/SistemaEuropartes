@@ -1,4 +1,7 @@
 from decimal import Decimal
+from io import BytesIO
+
+import openpyxl
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -67,6 +70,14 @@ class HistorialVentasTestCase(APITestCase):
         
         cls.usuario.groups.add(
             Group.objects.get_or_create(name="Vendedor")[0]
+        )
+
+        cls.usuario_admin_sin_empleado = User.objects.create_user(
+            username="admin_historial_sin_empleado",
+            password="Europartes123",
+        )
+        cls.usuario_admin_sin_empleado.groups.add(
+            Group.objects.get_or_create(name="Administrador General")[0]
         )
 
         cls.empleado = Empleado.objects.create(
@@ -325,3 +336,48 @@ class HistorialVentasTestCase(APITestCase):
             response.data[1]["id"],
             factura1.id,
         )
+    def test_filtro_fecha_invalida_devuelve_400(self):
+        response = self.client.get(
+            reverse("venta:historial_facturas"),
+            {"fecha_inicio": "fecha-invalida"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_filtro_id_invalido_devuelve_400(self):
+        response = self.client.get(
+            reverse("venta:historial_facturas"),
+            {"cliente_id": "abc"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_rol_de_consulta_global_no_necesita_empleado_asociado(self):
+        self.crear_venta(self.producto1, 1)
+        self.client.force_authenticate(user=self.usuario_admin_sin_empleado)
+        response = self.client.get(reverse("venta:historial_facturas"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+    def test_exportar_historial_ventas_excel_conserva_exportacion_y_busqueda(self):
+        _, factura_a = self.crear_venta(self.producto1, 2)
+        venta_b, _ = self.crear_venta(self.producto2, 1)
+        otro_cliente = Cliente.objects.create(
+            nombres="Otro", apellidos="Cliente", telefono="87770000",
+            direccion="Managua", correo="otro.cliente@test.com", estado=True,
+        )
+        venta_b.cliente = otro_cliente
+        venta_b.save(update_fields=["cliente"])
+        response = self.client.get(
+            reverse("venta:exportar_facturas_excel"),
+            {"busqueda": "Cliente Historial"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            response["Content-Type"],
+        )
+        workbook = openpyxl.load_workbook(BytesIO(response.content), read_only=True)
+        rows = list(workbook["Historial de Facturas"].iter_rows(values_only=True))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][0], factura_a.id)
+        workbook.close()
+

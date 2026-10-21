@@ -1,24 +1,35 @@
 import { ClientesView } from './clientesView.js';
 import { ClientesService } from './clientesService.js';
 import { UI } from '../../components/ui.js';
+import { RBAC } from '../../core/rbac.js';
+import { AuthService } from '../../core/auth.js';
+import { escapeHtml } from '../../utils/escapeHtml.js';
+import { getErrorMessage } from '../../utils/errorMessage.js';
 
 export const ClientesController = {
     debounceTimer: null,
+    _loadSequence: 0,
+    _saving: false,
     onSuccess: null, // Callback para integración con Ventas
 
     async init() {
         const root = document.getElementById('main-content');
         if (!root) return;
         root.innerHTML = ClientesView.render();
-        await this.loadTable();
         this.bindEvents();
+        RBAC.applyActionVisibility(root);
+        await this.loadTable();
+        RBAC.applyActionVisibility(root);
     },
 
     async loadTable(search = '') {
         const container = document.getElementById('clientes-table-container');
         if (!container) return;
+        const sequence = ++this._loadSequence;
+        container.innerHTML = '<div class="catalog-state" role="status" aria-live="polite"><i class="bx bx-loader-alt bx-spin" aria-hidden="true"></i> Cargando clientes…</div>';
         try {
             const data = await ClientesService.getAll(search);
+            if (sequence !== this._loadSequence) return;
             const records = data.results || data;
             
             if (!records || records.length === 0) {
@@ -26,31 +37,32 @@ export const ClientesController = {
                 return;
             }
 
+            const canView = RBAC.can(AuthService.getRole(), 'cliente.ver');
+            const canEdit = RBAC.can(AuthService.getRole(), 'cliente.editar');
+            const canDelete = RBAC.can(AuthService.getRole(), 'cliente.eliminar');
             let rows = records.map(c => `
             <tr style="opacity: ${c.estado ? '1' : '0.5'}">
-                <td><span style="font-family: monospace; color: var(--primary-color);">#${c.id}</span></td>
-                <td><strong>${c.nombres} ${c.apellidos}</strong></td>
-                <td>${c.telefono}</td>
-                <td>${c.correo}</td>
-                <td>${c.estado ? '<span style="color:var(--success-color);">Activo</span>' : '<span style="color:var(--text-secondary);">Inactivo</span>'}</td>
-                <td>
-                    <div class="table-actions">
-                        <button class="btn-icon btn-view" data-id="${c.id}" title="Ver Detalle"><i class='bx bx-show'></i></button>
-                        <button class="btn-icon btn-edit" data-id="${c.id}" title="Editar"><i class='bx bx-edit'></i></button>
-                        ${c.estado ? `<button class="btn-icon btn-delete" data-id="${c.id}" title="Desactivar"><i class='bx bx-trash' style="color: var(--danger-color);"></i></button>` : `<button class="btn-icon btn-activate" data-id="${c.id}" title="Activar"><i class='bx bx-check-circle' style="color: var(--success-color);"></i></button>`}
-                    </div>
-                </td>
-            </tr>
-            `).join('');
+                <td><span style="font-family: monospace; color: var(--primary-color);">#${escapeHtml(c.id)}</span></td>
+                <td><strong>${escapeHtml(c.nombres)} ${escapeHtml(c.apellidos)}</strong></td>
+                <td>${escapeHtml(c.telefono)}</td>
+                <td>${escapeHtml(c.correo)}</td>
+                <td>${c.estado ? '<span class="catalog-status is-active">Activo</span>' : '<span class="catalog-status">Inactivo</span>'}</td>
+                <td><div class="table-actions">
+                    ${canView ? `<button type="button" class="btn-icon btn-view" data-id="${escapeHtml(c.id)}" title="Ver detalle" aria-label="Ver cliente ${escapeHtml(c.nombres)}"><i class="bx bx-show" aria-hidden="true"></i></button>` : ''}
+                    ${canEdit ? `<button type="button" class="btn-icon btn-edit" data-id="${escapeHtml(c.id)}" title="Editar" aria-label="Editar cliente ${escapeHtml(c.nombres)}"><i class="bx bx-edit" aria-hidden="true"></i></button>` : ''}
+                    ${canDelete && c.estado ? `<button type="button" class="btn-icon btn-delete" data-id="${escapeHtml(c.id)}" title="Desactivar" aria-label="Desactivar cliente ${escapeHtml(c.nombres)}"><i class="bx bx-trash" aria-hidden="true"></i></button>` : ''}
+                </div></td></tr>`).join('');
 
             container.innerHTML = `<table class="euro-table"><thead><tr><th>ID</th><th>Cliente</th><th>Teléfono</th><th>Correo</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-            document.querySelectorAll('.btn-view').forEach(b => b.addEventListener('click', (e) => this.openModal(e.currentTarget.dataset.id, true)));
-            document.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', (e) => this.openModal(e.currentTarget.dataset.id, false)));
-            document.querySelectorAll('.btn-delete').forEach(b => b.addEventListener('click', (e) => this.toggleStatus(e.currentTarget.dataset.id, false)));
-            document.querySelectorAll('.btn-activate').forEach(b => b.addEventListener('click', (e) => this.toggleStatus(e.currentTarget.dataset.id, true)));
+            container.querySelectorAll('.btn-view').forEach(b => b.addEventListener('click', (e) => this.openModal(e.currentTarget.dataset.id, true)));
+            container.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', (e) => this.openModal(e.currentTarget.dataset.id, false)));
+            container.querySelectorAll('.btn-delete').forEach(b => b.addEventListener('click', (e) => this.toggleStatus(e.currentTarget.dataset.id, false)));
+            container.querySelectorAll('.btn-activate').forEach(b => b.addEventListener('click', (e) => this.toggleStatus(e.currentTarget.dataset.id, true)));
         } catch (error) {
-            container.innerHTML = `<div class="text-center" style="padding: 2rem; color: var(--danger-color);">Error de red.</div>`;
+            if (sequence !== this._loadSequence) return;
+            console.error('[Catálogos/clientes] Falló la carga de datos:', error);
+            UI.renderSectionError(container, getErrorMessage(error, 'No fue posible cargar los clientes.'), () => this.loadTable(document.getElementById('search-cliente')?.value || ''));
         }
     },
 
@@ -71,6 +83,7 @@ export const ClientesController = {
         };
         
         document.getElementById('btn-nuevo-cliente')?.addEventListener('click', () => {
+            if (!RBAC.can(AuthService.getRole(), 'cliente.crear')) return UI.showToast('No tienes permisos para esta acción.', 'error');
             this.openModal(null, false);
         });
         
@@ -78,10 +91,13 @@ export const ClientesController = {
         document.getElementById('btn-cancel-cliente')?.addEventListener('click', closeModal);
 
         document.getElementById('btn-save-cliente')?.addEventListener('click', async () => {
+            const saveButton = document.getElementById('btn-save-cliente');
+            if (this._saving) return;
             const form = document.getElementById('form-cliente');
             if (!form.checkValidity()) { form.reportValidity(); return; }
 
             const id = document.getElementById('cli_id').value;
+            if (!RBAC.can(AuthService.getRole(), id ? 'cliente.editar' : 'cliente.crear')) return UI.showToast('No tienes permisos para esta acción.', 'error');
             const payload = {
                 nombres: document.getElementById('cli_nombres').value.trim(),
                 apellidos: document.getElementById('cli_apellidos').value.trim(),
@@ -92,6 +108,8 @@ export const ClientesController = {
 
             if(!id) payload.estado = true;
 
+            this._saving = true;
+            if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); }
             UI.showGlobalLoader();
             try {
                 let res;
@@ -111,9 +129,11 @@ export const ClientesController = {
                     this.onSuccess(finalId);
                 }
             } catch (error) {
-                UI.showToast('Error en el formulario.', 'error');
+                UI.showToast(getErrorMessage(error, 'No fue posible guardar el cliente.'), 'error');
             } finally {
                 UI.hideGlobalLoader();
+                this._saving = false;
+                if (saveButton?.isConnected) { saveButton.disabled = false; saveButton.removeAttribute('aria-busy'); }
             }
         });
     },
@@ -134,6 +154,9 @@ export const ClientesController = {
         if (id instanceof Event || id === 'undefined' || id === 'null' || !id) {
             id = null;
         }
+        if (!RBAC.can(AuthService.getRole(), 'cliente.ver')) return UI.showToast('No tienes permisos para consultar clientes.', 'error');
+        if (id && !readOnly && !RBAC.can(AuthService.getRole(), 'cliente.editar')) return UI.showToast('No tienes permisos para editar clientes.', 'error');
+        if (!id && !RBAC.can(AuthService.getRole(), 'cliente.crear')) return UI.showToast('No tienes permisos para crear clientes.', 'error');
 
         const modal = document.getElementById('cliente-modal');
         if (!modal) {
@@ -157,7 +180,7 @@ export const ClientesController = {
                 document.getElementById('cli_correo').value = cli.correo;
                 document.getElementById('cli_direccion').value = cli.direccion;
             } catch (error) {
-                UI.showToast('Error de consulta', 'error');
+                UI.showToast(getErrorMessage(error, 'No fue posible consultar el cliente.'), 'error');
             } finally {
                 UI.hideGlobalLoader();
             }
@@ -168,14 +191,15 @@ export const ClientesController = {
 
     async toggleStatus(id, newStatus) {
         const actionText = newStatus ? 'ACTIVAR' : 'INACTIVAR';
+        if (!RBAC.can(AuthService.getRole(), 'cliente.eliminar')) return UI.showToast('No tienes permisos para esta acción.', 'error');
         if (!confirm(`¿Desea ${actionText} este cliente?`)) return;
         UI.showGlobalLoader();
         try {
-            await ClientesService.update(id, { estado: newStatus }, 'PATCH');
+            await ClientesService.setStatus(id, newStatus);
             UI.showToast(`Cliente ${newStatus ? 'activado' : 'inactivado'}`, 'success');
             this.loadTable();
         } catch (error) {
-            UI.showToast('Error del servidor', 'error');
+            UI.showToast(getErrorMessage(error, 'No fue posible actualizar el cliente.'), 'error');
         } finally {
             UI.hideGlobalLoader();
         }

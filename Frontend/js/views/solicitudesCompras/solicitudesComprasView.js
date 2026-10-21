@@ -16,19 +16,19 @@ export const SolicitudesComprasView = {
     const solicitudesHTML = solicitudes.map(s => `
       <tr><td>#${s.id}</td><td>${escapeHtml(fecha(s.fecha_solicitud))}</td>
       <td>${(s.detalles || []).map(d => `${escapeHtml(d.producto_nombre || d.producto_id)} × ${escapeHtml(d.cantidad)}`).join('<br>')}</td>
-      <td><span class="status-badge">${escapeHtml(labelEstado(s.estado))}</span></td><td>${escapeHtml(s.observaciones || '—')}</td><td class="table-actions">
+      <td><span class="status-badge">${escapeHtml(labelEstado(s.estado))}</span></td><td>${escapeHtml(s.observaciones || '—')}</td><td class="table-actions"><div class="sc-action-buttons">
       ${vendedor && s.estado === 'PENDIENTE' ? `<button class="btn btn-sm btn-secondary" data-action="edit-request" data-id="${s.id}">Editar</button><button class="btn btn-sm btn-danger" data-action="delete-request" data-id="${s.id}">Eliminar</button>` : ''}
       ${coordinador && s.estado === 'PENDIENTE' ? `<button class="btn btn-sm btn-primary" data-action="accept-request" data-id="${s.id}">Aceptar</button><button class="btn btn-sm btn-danger" data-action="reject-request" data-id="${s.id}">Rechazar</button>` : ''}
       ${coordinador && s.estado === 'ACEPTADA' && !compras.some(c => Number(c.solicitud_id) === Number(s.id)) ? `<button class="btn btn-sm btn-primary" data-action="create-purchase" data-id="${s.id}">Generar compra</button>` : ''}
-      </td></tr>`).join('');
+      </div></td></tr>`).join('');
     const comprasHTML = compras.map(c => `
       <tr><td>#${c.id}</td><td>${escapeHtml(fecha(c.fecha))}</td><td>${escapeHtml(c.proveedor_nombre || c.proveedor_id || '—')}</td>
       <td>${(c.detalles || []).map(d => `${escapeHtml(d.producto_nombre || d.producto_id)} × ${escapeHtml(d.cantidad)}`).join('<br>')}</td>
-      <td><span class="status-badge">${escapeHtml(labelEstado(c.estado))}</span></td><td class="table-actions">
+      <td><span class="status-badge">${escapeHtml(labelEstado(c.estado))}</span></td><td class="table-actions"><div class="sc-action-buttons">
       ${coordinador && c.estado === 'REALIZADA' ? `<button class="btn btn-sm btn-primary" data-action="start-purchase" data-id="${c.id}">Iniciar</button>` : ''}
       ${finanzas && c.estado === 'EN_PROCESO' ? `<button class="btn btn-sm btn-primary" data-action="approve-purchase" data-id="${c.id}">Aprobar</button>` : ''}
       ${oficial && c.estado === 'PROCESADA' ? `<button class="btn btn-sm btn-primary" data-action="receive-purchase" data-id="${c.id}">Registrar recepción</button>` : ''}
-      </td></tr>`).join('');
+      </div></td></tr>`).join('');
     return `
       <section class="page-header"><div><h1>Solicitudes y Compras</h1><p>Gestión del abastecimiento, aprobación y recepción de compras.</p></div><button class="btn btn-secondary" id="sc-refresh">Actualizar</button></section>
       ${error ? `<div class="alert alert-danger" role="alert">${escapeHtml(error)}</div>` : ''}

@@ -1,4 +1,7 @@
 from datetime import timedelta
+from io import BytesIO
+
+import openpyxl
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -728,3 +731,53 @@ class KardexAPITestCase(APITestCase):
             response.data,
             []
         )
+
+    def test_filtro_fecha_invalida_devuelve_400(self):
+        self.client.force_authenticate(user=self.usuario_admin)
+        response = self.client.get(
+            reverse("compra:inventario"),
+            {"fecha_desde": "no-es-fecha"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_exportar_kardex_excel_respeta_filtros_y_es_xlsx_valido(self):
+        self.autenticar(self.usuario_admin)
+        InventarioService.registrar_entrada_compra(
+            producto_id=self.producto_1.id,
+            cantidad=1,
+            empleado=self.empleado_admin,
+            referencia_id=99,
+            observaciones="Segunda entrada para validar exportación completa",
+        )
+        response = self.client.get(
+            reverse("compra:exportar_kardex_excel"),
+            {"producto_id": self.producto_1.id, "tipo_movimiento": "ENTRADA_COMPRA"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            response["Content-Type"],
+        )
+        workbook = openpyxl.load_workbook(BytesIO(response.content), read_only=True)
+        sheet = workbook["Kardex"]
+        rows = list(sheet.iter_rows(values_only=True))
+        self.assertEqual(len(rows), 3)  # encabezado + ambas entradas que cumplen filtro
+        self.assertTrue(all(row[2] == self.producto_1.id for row in rows[1:]))
+        self.assertTrue(all(row[4] == "Entrada por compra" for row in rows[1:]))
+        self.assertEqual({row[5] for row in rows[1:]}, {10, 1})
+        workbook.close()
+
+    def test_exportar_kardex_sin_resultados_devuelve_mensaje(self):
+        self.autenticar(self.usuario_admin)
+        response = self.client.get(
+            reverse("compra:exportar_kardex_excel"),
+            {"producto_id": 999999},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("No hay movimientos", response.data["detail"])
+
+    def test_exportar_kardex_rechaza_vendedor(self):
+        self.autenticar(self.usuario_vendedor)
+        response = self.client.get(reverse("compra:exportar_kardex_excel"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+

@@ -2,139 +2,107 @@ import { ProveedoresView } from './proveedoresView.js';
 import { ProveedoresService } from './proveedoresService.js';
 import { UI } from '../../components/ui.js';
 import { PaisesController } from '../paises/paisesController.js';
+import { RBAC } from '../../core/rbac.js';
+import { AuthService } from '../../core/auth.js';
+import { escapeHtml } from '../../utils/escapeHtml.js';
+import { getErrorMessage } from '../../utils/errorMessage.js';
 
 export const ProveedoresController = {
-    eventsBound: false,
-    onSuccess: null,
     paises: [],
-
+    can(action) { return RBAC.can(AuthService.getRole(), action); },
     async init() {
-        const root = document.getElementById('main-content');
-        if (!root) return;
-        root.innerHTML = ProveedoresView.render();
-        await this.loadTable();
-        this.bindEvents();
+        const root = document.getElementById('main-content'); if (!root) return;
+        root.innerHTML = ProveedoresView.render(); this.bindEvents(root); RBAC.applyActionVisibility(root); await this.loadTable(); RBAC.applyActionVisibility(root);
     },
-
-    initModal() {
-        if (!document.getElementById('proveedor-modal')) {
-            document.body.insertAdjacentHTML('beforeend', ProveedoresView.renderModal());
-            this.bindModalEvents();
-        }
-    },
-
-    async loadDependencias() {
-        try {
-            this.paises = await ProveedoresService.getPaises();
-            const select = document.getElementById('prov_pais');
-            if(select) {
-                select.innerHTML = '<option value="">Seleccione...</option>' + 
-                    this.paises.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
-            }
-        } catch(e) { console.error("Error cargando países", e); }
-    },
-
-    async loadTable() {
-        const container = document.getElementById('proveedores-table-container');
-        if(!container) return;
-        try {
-            await this.loadDependencias();
-            const data = await ProveedoresService.getAll();
-            const rows = data.map(p => {
-                const paisObj = this.paises.find(pa => pa.id === p.pais);
-                return `<tr><td>${p.id}</td><td>${p.nombre}</td><td>${paisObj ? paisObj.nombre : '-'}</td>
-                <td><button class="btn-icon btn-edit-prov" data-id="${p.id}"><i class='bx bx-edit'></i></button></td></tr>`;
-            }).join('');
-            container.innerHTML = `<table class="euro-table"><thead><tr><th>ID</th><th>Nombre</th><th>País</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
-            document.querySelectorAll('.btn-edit-prov').forEach(b => b.addEventListener('click', (e) => this.openModal(e.currentTarget.dataset.id)));
-        } catch (error) { container.innerHTML = 'Error cargando datos.'; }
-    },
-
-    bindEvents() {
-        document.getElementById('btn-nuevo-proveedor')?.addEventListener('click', () => this.openModal());
-        this.bindModalEvents();
-    },
-
-    bindModalEvents() {
-        if (this.eventsBound) return;
-        this.eventsBound = true;
-        
-        const closeModal = () => { document.getElementById('proveedor-modal').classList.remove('show'); document.getElementById('form-proveedor').reset(); };
-        document.getElementById('btn-close-proveedor-modal').addEventListener('click', closeModal);
-
-        // ==========================================
-        // FASE 3: INTEGRACIÓN Y EDICIÓN ANIDADA
-        // ==========================================
-        document.getElementById('btn-add-pais-sub').addEventListener('click', () => {
-            PaisesController.onSuccess = async (newId) => {
-                await this.loadDependencias();
-                document.getElementById('prov_pais').value = newId;
-            };
+    bindEvents(root) {
+        root.querySelector('#btn-nuevo-proveedor')?.addEventListener('click', () => this.openModal());
+        const modal = root.querySelector('#proveedor-modal');
+        modal?.querySelector('#btn-close-proveedor-modal')?.addEventListener('click', () => this.closeModal());
+        modal?.addEventListener('click', e => { if (e.target === modal) this.closeModal(); });
+        modal?.querySelector('#btn-save-proveedor')?.addEventListener('click', () => this.save());
+        modal?.querySelector('#form-proveedor')?.addEventListener('submit', e => { e.preventDefault(); this.save(); });
+        modal?.querySelector('#btn-add-pais-sub')?.addEventListener('click', () => {
+            if (!this.can('pais.crear')) return UI.showToast('No tienes permisos para administrar países.', 'error');
+            PaisesController.onSuccess = async newId => { await this.loadDependencias(); const select = document.getElementById('prov_pais'); if (select && newId) select.value = newId; };
             PaisesController.openModal();
         });
-
-        document.getElementById('btn-edit-pais-sub').addEventListener('click', () => {
-            const paisId = document.getElementById('prov_pais').value;
-            if(!paisId) return UI.showToast('Seleccione un país primero', 'error');
-            PaisesController.onSuccess = async () => await this.loadDependencias();
-            PaisesController.openModal(paisId, false);
+        modal?.querySelector('#btn-edit-pais-sub')?.addEventListener('click', () => {
+            const paisId = document.getElementById('prov_pais')?.value;
+            if (!paisId) return UI.showToast('Seleccione un país primero.', 'error');
+            if (!this.can('pais.editar')) return UI.showToast('No tienes permisos para administrar países.', 'error');
+            PaisesController.onSuccess = async () => { const selected = document.getElementById('prov_pais')?.value; await this.loadDependencias(); const select = document.getElementById('prov_pais'); if (select && selected) select.value = selected; };
+            PaisesController.openModal(paisId);
         });
-
-        document.getElementById('btn-save-proveedor').addEventListener('click', async () => {
-            const form = document.getElementById('form-proveedor');
-            if (!form.checkValidity()) return form.reportValidity();
-
-            const id = document.getElementById('prov_id').value;
-            const payload = { 
-                nombre: document.getElementById('prov_nombre').value.trim(),
-                pais: parseInt(document.getElementById('prov_pais').value),
-                telefono: document.getElementById('prov_telefono').value.trim(),
-                email: document.getElementById('prov_email').value.trim(),
-                sitio_web: document.getElementById('prov_sitio_web').value.trim(),
-                estado: true
-            };
-
-            UI.showGlobalLoader();
-            try {
-                let res;
-                if (id) res = await ProveedoresService.update(id, payload);
-                else res = await ProveedoresService.create(payload);
-                
-                UI.showToast('Proveedor guardado', 'success');
-                closeModal();
-                if (document.getElementById('proveedores-table-container')) this.loadTable();
-                if (this.onSuccess) this.onSuccess(id || res.id);
-            } catch (e) { UI.showToast('Error', 'error'); } finally { UI.hideGlobalLoader(); }
+        root.querySelector('#proveedores-table-container')?.addEventListener('click', e => {
+            const edit = e.target.closest('.btn-edit-prov'), del = e.target.closest('.btn-delete-prov');
+            if (edit && this.can('proveedor.editar')) this.openModal(edit.dataset.id);
+            if (del && this.can('proveedor.eliminar')) this.remove(del.dataset.id);
         });
     },
-
-    async openModal(id = null, readOnly = false) {
-        this.initModal();
-        await this.loadDependencias(); 
-        document.getElementById('prov_id').value = id || '';
-        document.getElementById('form-proveedor').reset();
-        
-        Array.from(document.getElementById('form-proveedor').elements).forEach(el => el.disabled = readOnly);
-        document.getElementById('btn-save-proveedor').style.display = readOnly ? 'none' : 'block';
-
-        // ==========================================
-        // FASE 3: LÓGICA CONTEXTUAL NUEVO VS EDITAR
-        // ==========================================
-        const isNew = !id;
-        document.getElementById('btn-add-pais-sub').style.display = (isNew && !readOnly) ? 'inline-flex' : 'none';
-        document.getElementById('btn-edit-pais-sub').style.display = (!isNew && !readOnly) ? 'inline-flex' : 'none';
-
-        if (id) {
-            UI.showGlobalLoader();
-            try {
+    async loadDependencias() {
+        const select = document.getElementById('prov_pais'); if (!select) return;
+        const selected = select.value;
+        try {
+            const response = await ProveedoresService.getPaises(); this.paises = Array.isArray(response) ? response : (response?.results || []);
+            select.innerHTML = '<option value="">Seleccione un país…</option>' + this.paises.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nombre)}</option>`).join('');
+            if (selected && this.paises.some(p => String(p.id) === String(selected))) select.value = selected;
+        } catch (error) { select.innerHTML = '<option value="">No fue posible cargar países</option>'; throw error; }
+    },
+    async loadTable() {
+        const container = document.getElementById('proveedores-table-container'); if (!container) return;
+        container.innerHTML = '<div class="catalog-state" role="status">Cargando proveedores…</div>';
+        try {
+            const [providerResponse, countryResponse] = await Promise.all([ProveedoresService.getAll(), ProveedoresService.getPaises()]);
+            const records = Array.isArray(providerResponse) ? providerResponse : (providerResponse?.results || []);
+            this.paises = Array.isArray(countryResponse) ? countryResponse : (countryResponse?.results || []);
+            if (!records.length) { container.innerHTML = '<div class="catalog-state">No hay proveedores registrados.</div>'; return; }
+            const canEdit = this.can('proveedor.editar'), canDelete = this.can('proveedor.eliminar');
+            const rows = records.map(p => {
+                const country = this.paises.find(pa => String(pa.id) === String(p.pais));
+                return `<tr><td>${escapeHtml(p.id)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(country?.nombre || '—')}</td><td>${escapeHtml(p.telefono || '—')}</td><td>${escapeHtml(p.email || '—')}</td><td><div class="table-actions">${canEdit ? `<button type="button" class="btn-icon btn-edit-prov" data-id="${escapeHtml(p.id)}" aria-label="Editar proveedor ${escapeHtml(p.nombre)}" title="Editar"><i class="bx bx-edit" aria-hidden="true"></i></button>` : '<span>—</span>'}${canDelete ? `<button type="button" class="btn-icon btn-delete-prov" data-id="${escapeHtml(p.id)}" aria-label="Eliminar proveedor ${escapeHtml(p.nombre)}" title="Eliminar"><i class="bx bx-trash" aria-hidden="true"></i></button>` : ''}</div></td></tr>`;
+            }).join('');
+            container.innerHTML = `<table class="euro-table"><thead><tr><th scope="col">ID</th><th scope="col">Proveedor</th><th scope="col">País</th><th scope="col">Teléfono</th><th scope="col">Correo</th><th scope="col">Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
+        } catch (error) { console.error('[Catálogos/proveedores] Falló la carga de datos:', error); container.innerHTML = `<div class="catalog-state is-error" role="alert">${escapeHtml(getErrorMessage(error, 'No fue posible cargar proveedores o países.'))}</div>`; }
+    },
+    async openModal(id = null) {
+        if (!this.can(id ? 'proveedor.editar' : 'proveedor.crear')) return UI.showToast('No tienes permisos para esta acción.', 'error');
+        const form = document.getElementById('form-proveedor'); if (!form) return;
+        form.reset(); document.getElementById('prov_id').value = id || '';
+        document.getElementById('proveedor-modal-title').textContent = id ? 'Editar proveedor' : 'Nuevo proveedor';
+        document.getElementById('btn-add-pais-sub').style.display = this.can('pais.crear') ? 'inline-flex' : 'none';
+        document.getElementById('btn-edit-pais-sub').style.display = this.can('pais.editar') ? 'inline-flex' : 'none';
+        UI.showGlobalLoader();
+        try {
+            await this.loadDependencias();
+            if (id) {
                 const data = await ProveedoresService.getById(id);
-                document.getElementById('prov_nombre').value = data.nombre;
-                document.getElementById('prov_pais').value = data.pais;
-                document.getElementById('prov_telefono').value = data.telefono;
-                document.getElementById('prov_email').value = data.email;
-                document.getElementById('prov_sitio_web').value = data.sitio_web;
-            } catch (e) { UI.showToast('Error', 'error'); } finally { UI.hideGlobalLoader(); }
-        }
-        document.getElementById('proveedor-modal').classList.add('show');
-    }
+                document.getElementById('prov_nombre').value = data.nombre ?? '';
+                document.getElementById('prov_pais').value = data.pais ?? '';
+                document.getElementById('prov_telefono').value = data.telefono ?? '';
+                document.getElementById('prov_email').value = data.email ?? '';
+                document.getElementById('prov_sitio_web').value = data.sitio_web ?? '';
+            }
+            document.getElementById('proveedor-modal').classList.add('show');
+            document.getElementById('prov_nombre')?.focus();
+        } catch (error) { UI.showToast(getErrorMessage(error, 'No fue posible cargar los datos del proveedor.'), 'error'); }
+        finally { UI.hideGlobalLoader(); }
+    },
+    async save() {
+        const form = document.getElementById('form-proveedor'); if (!form || !form.reportValidity()) return;
+        const id = document.getElementById('prov_id').value;
+        if (!this.can(id ? 'proveedor.editar' : 'proveedor.crear')) return UI.showToast('No tienes permisos para esta acción.', 'error');
+        const countryId = document.getElementById('prov_pais').value;
+        const payload = { nombre: document.getElementById('prov_nombre').value.trim(), pais: Number(countryId), telefono: document.getElementById('prov_telefono').value.trim(), email: document.getElementById('prov_email').value.trim(), sitio_web: document.getElementById('prov_sitio_web').value.trim(), estado: true };
+        if (!payload.nombre || !countryId || !payload.telefono || !payload.email || !payload.sitio_web) return;
+        UI.showGlobalLoader();
+        try { if (id) await ProveedoresService.update(id, payload); else await ProveedoresService.create(payload); this.closeModal(); UI.showToast('Proveedor guardado correctamente.', 'success'); await this.loadTable(); }
+        catch (error) { UI.showToast(getErrorMessage(error, 'No fue posible guardar el proveedor.'), 'error'); } finally { UI.hideGlobalLoader(); }
+    },
+    async remove(id) {
+        if (!this.can('proveedor.eliminar')) return UI.showToast('No tienes permisos para esta acción.', 'error');
+        if (!confirm('¿Deseas eliminar este proveedor? Si tiene compras asociadas, el servidor podría rechazar la operación.')) return;
+        UI.showGlobalLoader(); try { await ProveedoresService.delete(id); UI.showToast('Proveedor eliminado.', 'success'); await this.loadTable(); }
+        catch (error) { UI.showToast(getErrorMessage(error, 'No fue posible eliminar el proveedor.'), 'error'); } finally { UI.hideGlobalLoader(); }
+    },
+    closeModal() { document.getElementById('proveedor-modal')?.classList.remove('show'); document.getElementById('form-proveedor')?.reset(); }
 };

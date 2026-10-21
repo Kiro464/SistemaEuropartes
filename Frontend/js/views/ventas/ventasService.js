@@ -12,9 +12,8 @@ export const VentasService = {
         return await ApiService.get(`/movimientos/venta/facturas/historial/${queryParams}`); 
     },
     async exportarExcel(queryParams = '') {
-        // En un entorno JWT real, la exportación requiere mandar el Bearer Token.
-        // ApiService.downloadBlob debería manejar la respuesta tipo 'blob'.
-        // Si no existe downloadBlob en api.js, se usa get normal y se parsea en el Controller.
-        return await ApiService.get(`/movimientos/venta/facturas/exportar/excel/${queryParams}`, { responseType: 'blob' });
+        // Las exportaciones son respuestas binarias; get() intenta interpretar JSON.
+        // getBlob() conserva el interceptor JWT y devuelve el archivo sin parsearlo.
+        return await ApiService.getBlob(`/movimientos/venta/facturas/exportar/excel/${queryParams}`);
     }
 };

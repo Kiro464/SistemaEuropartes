@@ -1,5 +1,8 @@
 from decimal import Decimal
 from datetime import timedelta
+from io import BytesIO
+
+import openpyxl
 
 from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
@@ -887,3 +890,53 @@ class HistorialComprasTestCase(APITestCase):
             response.data[0]["id"],
             compra.id,
         )
+
+    def test_historial_rechaza_identificadores_de_filtro_invalidos(self):
+        for parametro in ("proveedor_id", "empleado_id", "producto_id", "solicitud_id"):
+            with self.subTest(parametro=parametro):
+                response = self.client.get(
+                    reverse("compra:historial_compras"),
+                    {parametro: "no-es-un-id"},
+                )
+                self.assertEqual(response.status_code, 400)
+
+    def test_exportar_historial_compras_excel_respeta_filtros_y_todos_los_registros(self):
+        compra_a = self.crear_compra(con_factura=True, cantidad=2)
+        compra_b = self.crear_compra(estado="PROCESADA", cantidad=4, producto=self.producto2)
+        compra_c = self.crear_compra(estado="REALIZADA", cantidad=3, producto=self.producto2)
+
+        response = self.client.get(
+            reverse("compra:exportar_historial_compras_excel"),
+            {"proveedor_id": self.proveedor.id, "estado": "REALIZADA"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            response["Content-Type"],
+        )
+        workbook = openpyxl.load_workbook(BytesIO(response.content), read_only=True)
+        sheet = workbook["Historial compras"]
+        rows = list(sheet.iter_rows(values_only=True))
+        self.assertEqual(len(rows), 3)  # encabezado + ambas compras que cumplen filtro
+        ids_exportados = {rows[1][0], rows[2][0]}
+        self.assertEqual(ids_exportados, {compra_a.id, compra_c.id})
+        self.assertTrue(any("Producto Compra Historial A x 2" in row[-1] for row in rows[1:]))
+        workbook.close()
+
+    def test_exportar_historial_compras_sin_resultados_devuelve_mensaje(self):
+        response = self.client.get(
+            reverse("compra:exportar_historial_compras_excel"),
+            {"proveedor_id": 999999},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("No hay compras", response.data["detail"])
+
+    def test_exportar_historial_compras_requiere_rol_autorizado(self):
+        usuario_no_autorizado = User.objects.create_user(
+            username="usuario_export_compra_no_autorizado", password="test"
+        )
+        self.client.force_authenticate(user=usuario_no_autorizado)
+        response = self.client.get(reverse("compra:exportar_historial_compras_excel"))
+        self.assertEqual(response.status_code, 403)
+

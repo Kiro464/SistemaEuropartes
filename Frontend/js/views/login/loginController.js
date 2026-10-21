@@ -42,6 +42,9 @@ export const LoginController = {
             if (!username || !password) return;
 
             errorMsg.classList.add('hidden');
+            // Una autenticación nueva parte de un estado limpio. Si falla, no
+            // queda activa la identidad anterior ni su refresh token.
+            AuthService.clearSession({ redirect: false, reason: 'login-attempt' });
             btnSubmit.disabled = true;
             btnSubmit.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Autenticando...`;
             UI.showGlobalLoader();

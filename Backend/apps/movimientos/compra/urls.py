@@ -14,6 +14,8 @@ from apps.movimientos.compra.views import (
     MovimientoInventarioListAPIView,
     HistorialComprasAPIView,
     HistorialCompraDetalleAPIView,
+    ExportarHistorialComprasExcelAPIView,
+    ExportarKardexExcelAPIView,
 )
 
 app_name = 'compra'
@@ -39,6 +41,11 @@ urlpatterns = [
         'solicitudes/<int:solicitud_id>/rechazar/',
         RechazarSolicitudCompraAPIView.as_view(),
         name='solicitud_rechazar'
+    ),
+    path(
+        "historial/exportar/excel/",
+        ExportarHistorialComprasExcelAPIView.as_view(),
+        name="exportar_historial_compras_excel",
     ),
     path(
         "historial/",
@@ -88,6 +95,11 @@ urlpatterns = [
         CambiarEstadoCompraAPIView.as_view(),
         {'accion': 'cancelar'},
         name='compra_cancelar'
+    ),
+    path(
+        'inventario/exportar/excel/',
+        ExportarKardexExcelAPIView.as_view(),
+        name='exportar_kardex_excel'
     ),
     path(
         'inventario/',

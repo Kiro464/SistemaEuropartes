@@ -1,0 +1,578 @@
+/* Fase 7.13 — Adaptación responsive incremental.
+ * Se carga después de los estilos existentes para corregir desbordamientos sin
+ * alterar los contratos, el contenido de los módulos ni las reglas de negocio.
+ */
+
+:root {
+    --mobile-gutter: clamp(10px, 2.5vw, 24px);
+    --mobile-control-height: 42px;
+}
+
+html { min-width: 320px; scroll-padding-top: 1rem; }
+body { min-width: 320px; }
+#app-layout { min-height: 100vh; min-height: 100dvh; }
+.main-wrapper, #main-content, #main-content > *, .module-card, .dashboard-page,
+.dashboard-grid-main > *, .dashboard-grid-two > *, .dashboard-grid-three > * {
+    min-width: 0;
+}
+#main-content { overscroll-behavior: contain; }
+#main-content img, #main-content svg, #main-content video, #main-content canvas { max-width: 100%; }
+#main-content pre, #main-content code { overflow-wrap: anywhere; }
+
+/* Las tablas conservan todas sus columnas y desplazan solo su propio contenedor. */
+.table-responsive, .dispatch-table-wrap, .sc-table-scroll,
+.catalog-table-wrap, .history-table-wrap, .table-scroll, .data-table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+.table-responsive > table, .table-responsive > .euro-table,
+.dispatch-table-wrap > table, .sc-table-scroll > table,
+.history-table-wrap > table, .table-scroll > table, .data-table-wrap > table {
+    max-width: none;
+}
+.euro-table { min-width: 620px; }
+.euro-table th, .euro-table td { overflow-wrap: anywhere; }
+.table-actions, .sc-action-buttons, .dispatch-order-actions { flex-wrap: wrap; }
+.table-actions .btn, .table-actions button { flex: 0 0 auto; }
+
+/* Formularios: las columnas pueden encogerse y los controles no fuerzan el viewport. */
+.form-grid, .euro-form, .form-group, .form-control, input, select, textarea, button {
+    min-width: 0;
+}
+.form-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.form-control, input, select, textarea { max-width: 100%; }
+textarea.form-control { resize: vertical; }
+.module-header { min-width: 0; flex-wrap: wrap; align-items: center; }
+.module-header > *, .product-header > *, .product-toolbar > *, .dashboard-hero > * { min-width: 0; }
+.module-header h1, .module-header h2, .module-header h3 { overflow-wrap: anywhere; }
+.module-header .btn, .module-header button { max-width: 100%; }
+
+/* Diálogo: el cuerpo se desplaza, mientras encabezado y acciones siguen accesibles. */
+#modal-root { position: relative; z-index: 2000; }
+.modal-overlay {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+             max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.modal-box {
+    width: min(800px, 100%);
+    max-width: 100%;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    min-height: 0;
+}
+.modal-header, .modal-footer { flex: 0 0 auto; gap: 8px; }
+.modal-header { min-width: 0; }
+.modal-header h3 { min-width: 0; overflow-wrap: anywhere; }
+.modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.modal-footer { flex-wrap: wrap; }
+.modal-footer > button, .modal-footer > .btn { max-width: 100%; }
+
+/* Dashboard: el contenido visual se adapta sin cambiar los datos ni los cálculos. */
+.dashboard-page { width: 100%; }
+.dashboard-kpi-grid, .dashboard-grid-two, .dashboard-grid-three,
+.dashboard-grid-main { min-width: 0; }
+.chart-area, .svg-chart-wrap, .dashboard-panel, .dashboard-card { min-width: 0; max-width: 100%; }
+.svg-chart-wrap { width: 100%; overflow: hidden; }
+.dashboard-svg { display: block; width: 100%; max-width: 100%; }
+.chart-axis-labels { display: flex; justify-content: space-between; gap: 4px; min-width: 0; overflow: hidden; }
+.chart-axis-labels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* POS: la vista existente define una grilla inline; esta regla solo reorganiza su presentación. */
+#vista-pos { min-width: 0; }
+#vista-pos > .module-card { min-width: 0; max-width: 100%; }
+#pos-productos-container, #pos-cart-items { min-width: 0; max-width: 100%; }
+#pos-cart-items { overflow-wrap: anywhere; }
+#btn-confirmar-venta { min-height: var(--mobile-control-height); }
+
+/* Controles globales y notificaciones */
+#toast-root { width: min(32rem, calc(100vw - 24px)); right: 12px; }
+.toast { width: 100%; max-width: 100%; overflow-wrap: anywhere; }
+.user-menu-panel { max-width: calc(100vw - 16px); }
+
+@media (min-width: 901px) {
+    body.mobile-nav-open::before { display: none; }
+}
+
+@media (max-width: 900px) {
+    #app-layout { position: relative; }
+    .sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        height: 100vh;
+        height: 100dvh;
+        max-width: min(var(--sidebar-width), 86vw);
+        width: min(var(--sidebar-width), 86vw);
+        min-width: 0;
+        transform: translateX(-105%);
+        transition: transform .22s ease;
+        z-index: 1000;
+        box-shadow: var(--shadow-lg);
+    }
+    .sidebar.active { transform: translateX(0); }
+    .sidebar.collapsed { width: min(var(--sidebar-width), 86vw); min-width: 0; }
+    .sidebar.collapsed .brand-copy, .sidebar.collapsed .nav-section-label,
+    .sidebar.collapsed .nav-link span, .sidebar.collapsed .sidebar-footer { display: initial; }
+    .sidebar.collapsed .sidebar-header { justify-content: flex-start; padding: 0 20px; }
+    .sidebar.collapsed .nav-link { justify-content: flex-start; }
+    body.mobile-nav-open { overflow: hidden; }
+    body.mobile-nav-open::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 990;
+        background: rgba(16, 24, 40, .48);
+        -webkit-backdrop-filter: blur(1px);
+        backdrop-filter: blur(1px);
+    }
+    #toggle-sidebar { min-width: 42px; min-height: 42px; justify-content: center; align-items: center; }
+    #topbar { gap: 8px; padding-inline: var(--mobile-gutter); }
+    .topbar-left, .topbar-actions { min-width: 0; gap: 8px; }
+    .topbar-actions { flex: 0 0 auto; }
+    #main-content { padding: var(--mobile-gutter); }
+    .user-summary { display: none; }
+    #vista-pos { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; }
+    #vista-pos > .module-card { min-height: auto !important; }
+    #vista-pos #pos-productos-container { max-height: 42vh !important; }
+}
+
+@media (max-width: 600px) {
+    #topbar { min-height: 60px; height: auto; flex: 0 0 auto; padding-block: 8px; }
+    .page-context { display: none; }
+    .topbar-chip span { display: none; }
+    .topbar-chip { width: 40px; min-width: 40px; min-height: 40px; justify-content: center; padding: 0; }
+    .topbar-actions { gap: 5px; }
+    .user-menu-trigger { min-height: 40px; gap: 4px; padding-right: 4px; }
+    .user-avatar { width: 30px; height: 30px; }
+    #main-content { padding: 10px; }
+    .module-card { padding: 14px; }
+    .module-header { align-items: stretch; flex-direction: column; }
+    .module-header > :last-child { max-width: 100%; }
+    .module-header .btn, .module-header button { width: 100%; }
+    .form-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .form-group { margin-bottom: .75rem; }
+    .form-control, input, select, textarea { font-size: 16px; } /* Evita zoom automático en iOS. */
+    .modal-overlay { align-items: flex-end; padding: 0; }
+    .modal-box { width: 100%; max-width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 16px 16px 0 0; }
+    .modal-header { padding: 12px 14px; }
+    .modal-header h3 { font-size: 1.05rem; }
+    .modal-body { padding: 14px; }
+    .modal-footer { padding: 12px 14px; }
+    .modal-footer > button, .modal-footer > .btn { flex: 1 1 120px; }
+    .product-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .product-toolbar { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-hero { padding: 16px; gap: 14px; }
+    .dashboard-hero h1 { font-size: clamp(1.25rem, 5vw, 1.65rem); overflow-wrap: anywhere; }
+    .dashboard-panel { padding: 12px; }
+    .donut-layout { grid-template-columns: minmax(0, 1fr); }
+    .dispatch-toolbar, .dispatch-order-header { align-items: stretch; }
+    .dispatch-order-actions .btn { flex: 1 1 100%; }
+    #toast-root { left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); width: auto; }
+}
+
+@media (max-width: 380px) {
+    .sidebar-header { padding-inline: 14px; }
+    .sidebar.collapsed .sidebar-header { padding-inline: 14px; }
+    .brand-copy .logo-text { font-size: 12px; letter-spacing: .04em; }
+    #topbar { padding-inline: 8px; }
+    .topbar-left, .topbar-actions { gap: 3px; }
+    .btn-icon { padding: 4px; }
+    .topbar-chip { width: 36px; min-width: 36px; }
+    .product-summary-grid { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-controls { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-refresh { width: 100%; }
+    .critical-row { grid-template-columns: minmax(0, 1fr); }
+    .critical-stock { grid-template-columns: minmax(40px, 1fr) 24px auto; }
+}
+
+@media (min-width: 1440px) {
+    #main-content { padding: clamp(24px, 2vw, 36px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar, .modal-box, .modal-overlay, .toast { transition: none !important; }
+}
+
+
+/* Fase 7.13-R — Refinamiento visual móvil localizado. */
+
+/* Escala moderada: se conserva la tipografía base en escritorio y los tokens de tema. */
+#main-content > .historial-page,
+#main-content > .historial-page .module-card { min-width: 0; }
+.historial-page .module-header h2 { font-size: clamp(1.05rem, 2.2vw, 1.35rem); line-height: 1.25; }
+.historial-page .module-header p { line-height: 1.45; }
+.historial-page #btn-exportar-excel { min-height: 42px; }
+
+/* Filtros sin estilos inline rígidos: 4 columnas en escritorio, 2 en tablet y 1 en teléfono. */
+.historial-filters {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+    gap: 10px;
+    margin-bottom: 1rem;
+    min-width: 0;
+}
+.historial-filters > * { min-width: 0; max-width: 100%; }
+.historial-filters .form-group { margin: 0; gap: 5px; }
+.historial-filters .form-group > span { font-size: .82rem; line-height: 1.3; color: var(--text-secondary); }
+.historial-filters .form-control { width: 100%; min-height: 42px; }
+.historial-filters .historial-search-field { grid-column: span 2; }
+.historial-filters > button { min-height: 42px; white-space: normal; }
+
+/* Los historiales se desplazan dentro de su propio contenedor, nunca desde el viewport. */
+.historial-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+.historial-table-scroll:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.historial-table-scroll > .euro-table { width: max-content; max-width: none; }
+.history-sales-table { min-width: 850px; }
+.history-purchases-table { min-width: 1180px; }
+.history-sales-table th, .history-sales-table td,
+.history-purchases-table th, .history-purchases-table td {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+/* Kardex: conservar la relación fila/columna y priorizar anchos legibles. */
+.historial-page[data-historial-tipo="kardex"] #historial-table-container { overscroll-behavior-x: contain; }
+.kardex-table {
+    width: max-content;
+    min-width: 1480px;
+    table-layout: auto;
+}
+.kardex-table th,
+.kardex-table td {
+    padding: 10px 12px;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+    vertical-align: top;
+}
+.kardex-table th {
+    min-width: 76px;
+    font-size: 11px;
+    line-height: 1.35;
+    letter-spacing: .025em;
+}
+.kardex-table th:nth-child(1), .kardex-table td:nth-child(1) { min-width: 150px; }
+.kardex-table th:nth-child(2), .kardex-table td:nth-child(2) { min-width: 210px; }
+.kardex-table th:nth-child(3), .kardex-table td:nth-child(3) { min-width: 140px; }
+.kardex-table th:nth-child(4), .kardex-table td:nth-child(4),
+.kardex-table th:nth-child(5), .kardex-table td:nth-child(5),
+.kardex-table th:nth-child(6), .kardex-table td:nth-child(6),
+.kardex-table th:nth-child(7), .kardex-table td:nth-child(7),
+.kardex-table th:nth-child(8), .kardex-table td:nth-child(8) {
+    min-width: 92px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.kardex-table th:nth-child(9), .kardex-table td:nth-child(9) { min-width: 145px; }
+.kardex-table th:nth-child(10), .kardex-table td:nth-child(10) { min-width: 170px; }
+.kardex-table th:nth-child(11), .kardex-table td:nth-child(11) {
+    min-width: 240px;
+    max-width: 320px;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+    line-height: 1.45;
+}
+.kardex-table td:nth-child(3) .status-badge { white-space: nowrap; }
+
+@media (max-width: 900px) {
+    .historial-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .historial-filters .historial-search-field { grid-column: 1 / -1; }
+    .historial-page .module-card { padding: clamp(12px, 2.5vw, 18px); }
+    .historial-table-scroll > .euro-table { font-size: 12px; }
+    .history-sales-table th, .history-sales-table td,
+    .history-purchases-table th, .history-purchases-table td { padding: 9px 10px; }
+}
+
+@media (max-width: 600px) {
+    #topbar { gap: 5px; }
+    .topbar-left { flex: 0 1 auto; }
+    .topbar-actions { gap: 3px; }
+    #toggle-theme { min-width: 36px; min-height: 40px; justify-content: center; }
+    .user-menu-trigger { padding: 3px; }
+    .user-menu-trigger > .bx-chevron-down { display: none; }
+    .historial-page .module-header { gap: 10px; margin-bottom: 14px; }
+    .historial-page .module-header > div { width: 100%; }
+    .historial-page #btn-exportar-excel { width: 100%; }
+    .historial-filters { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+    .historial-filters .historial-search-field { grid-column: auto; }
+    .historial-filters > button { width: 100%; }
+    .historial-page .module-card { padding: 12px; }
+    .kardex-table { min-width: 1480px; }
+    .kardex-table th, .kardex-table td { padding: 9px 10px; }
+}
+
+@media (max-width: 360px) {
+    #topbar { padding-inline: 6px; }
+    .topbar-actions { gap: 2px; }
+    .topbar-chip { width: 34px; min-width: 34px; }
+    #toggle-theme { min-width: 34px; padding-inline: 3px; }
+    .user-avatar { width: 28px; height: 28px; }
+    .historial-page .module-card { padding: 10px; }
+}
+
+/* Fase 7.13-S — optimización integral incremental de vistas responsive.
+ * Se conservan los componentes y tokens existentes; estos ajustes se cargan al final.
+ */
+:root {
+    --eu-page-gutter: clamp(10px, 2.1vw, 28px);
+    --eu-card-padding: clamp(12px, 1.8vw, 22px);
+    --eu-control-height: 42px;
+    --eu-table-cell-x: 12px;
+    --eu-table-cell-y: 10px;
+}
+
+/* Contención global: evita que textos y grids internos ensanchen el viewport. */
+#login-root,
+#app-layout,
+.main-wrapper,
+#main-content,
+#main-content > *,
+#main-content .module-container,
+#main-content .dashboard-container,
+#main-content .dashboard-page,
+#main-content .module-card,
+#main-content .dashboard-panel,
+#main-content .sc-card,
+#main-content .dispatch-order {
+    min-width: 0;
+    max-width: 100%;
+}
+
+#main-content .module-header,
+#main-content .page-header,
+#main-content .sc-section-title,
+#main-content .dispatch-order-header {
+    min-width: 0;
+}
+
+#main-content :is(input, select, textarea, button) { max-width: 100%; }
+#main-content :is(input, select, textarea) { min-width: 0; }
+#main-content :is(h1, h2, h3, h4, p, label, .form-help, .form-error) { overflow-wrap: break-word; }
+#main-content :is(.module-card, .dashboard-panel, .product-summary-card, .sc-card) { overflow-wrap: normal; }
+
+/* Contenedores de tablas: el scroll horizontal se queda dentro del componente. */
+#main-content :is(.table-responsive, .dispatch-table-wrap, .sc-table-scroll, .historial-table-scroll) {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+#main-content :is(.table-responsive, .dispatch-table-wrap, .sc-table-scroll, .historial-table-scroll):focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+#main-content :is(.table-responsive, .dispatch-table-wrap, .sc-table-scroll, .historial-table-scroll) > table {
+    max-width: none;
+}
+
+/* Productos: el precio/moneda no se parte; la tabla conserva todas sus columnas. */
+.product-table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+}
+.product-table th,
+.product-table td {
+    vertical-align: middle;
+    padding: var(--eu-table-cell-y) var(--eu-table-cell-x);
+    word-break: normal;
+    overflow-wrap: normal;
+}
+.product-table th:nth-child(1), .product-table td:nth-child(1) { min-width: 72px; }
+.product-table th:nth-child(2), .product-table td:nth-child(2) { min-width: 220px; }
+.product-table th:nth-child(3), .product-table td:nth-child(3) { min-width: 190px; }
+.product-table th:nth-child(4), .product-table td:nth-child(4) { min-width: 82px; text-align: center; }
+.product-table th:nth-child(5), .product-table td:nth-child(5) { min-width: 132px; text-align: right; white-space: nowrap; }
+.product-table td:nth-child(5) strong { display: inline-block; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.product-table th:nth-child(6), .product-table td:nth-child(6) { min-width: 100px; }
+.product-table th:nth-child(7), .product-table td:nth-child(7) { min-width: 148px; }
+.product-table .product-name-cell { min-width: 200px; max-width: 300px; white-space: normal; overflow-wrap: break-word; }
+.product-table .product-name-cell strong,
+.product-table .product-name-cell small { overflow-wrap: break-word; word-break: normal; }
+.product-table .product-reference { display: inline-block; min-width: 170px; white-space: normal; overflow-wrap: break-word; }
+.product-table .table-actions { flex-wrap: nowrap; align-items: center; white-space: nowrap; }
+.product-table .table-actions .btn-icon { flex: 0 0 36px; min-width: 36px; min-height: 36px; }
+
+/* Listados operativos: conservar números y estados, dejar crecer el texto descriptivo. */
+.dispatch-table, .sc-card .data-table { width: max-content; min-width: 100%; table-layout: auto; }
+.dispatch-table th, .dispatch-table td,
+.sc-card .data-table th, .sc-card .data-table td {
+    word-break: normal;
+    overflow-wrap: normal;
+}
+.dispatch-table th:not(:first-child), .dispatch-table td:not(:first-child) { white-space: nowrap; }
+.dispatch-table td:first-child,
+.sc-card .data-table td:nth-child(3),
+.sc-card .data-table td:nth-child(5) { min-width: 150px; white-space: normal; overflow-wrap: break-word; }
+.dispatch-qty-input { width: 100px; min-width: 88px; }
+.sc-card .data-table td.table-actions { min-width: 155px; }
+.sc-card .sc-action-buttons { flex-wrap: wrap; }
+
+/* Campos y botones: el tamaño táctil no se reduce por debajo de 40px. */
+#main-content .form-control,
+#main-content .btn,
+#main-content .btn-icon,
+#main-content .catalog-inline-actions .btn,
+#main-content .product-related-field .btn {
+    min-height: var(--eu-control-height);
+}
+#main-content .form-grid > *,
+#main-content .product-toolbar > *,
+#main-content .dashboard-controls > *,
+#main-content .catalog-toolbar > *,
+#main-content .historial-filters > * { min-width: 0; }
+#main-content .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#main-content .form-grid .form-control,
+#main-content .form-grid input,
+#main-content .form-grid select,
+#main-content .form-grid textarea { width: 100%; }
+#main-content .product-toolbar { grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) minmax(140px, 180px); }
+#main-content .catalog-search { min-width: 0; }
+#main-content .catalog-search .form-control { width: 100%; }
+
+/* Tarjetas y visualizaciones: los gráficos no deben imponer ancho al layout. */
+.dashboard-kpi-grid,
+.dashboard-grid-main,
+.dashboard-grid-two,
+.dashboard-grid-three,
+.dashboard-controls,
+.product-summary-grid,
+.movement-grid,
+.donut-layout { min-width: 0; }
+#main-content canvas,
+#main-content svg,
+#main-content .chart-area,
+#main-content .rank-chart,
+#main-content .chart-grid-line { max-width: 100%; }
+#main-content .chart-area { min-width: 0; }
+.dashboard-hero-copy, .dashboard-panel, .dashboard-panel > *, .dashboard-kpi { min-width: 0; }
+
+/* Modales estándar y modal propio de compras: limitar viewport sin tocar sus acciones. */
+#modal-root .modal-box,
+#main-content .modal-box,
+#main-content .sc-purchase-modal {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+}
+#modal-root .modal-body,
+#main-content .modal-body,
+#main-content .sc-modal-body { min-width: 0; overflow-x: auto; }
+#main-content .modal-footer,
+#main-content .sc-modal-footer { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Login: el 100vw más márgenes internos puede exceder el ancho del dispositivo. */
+#login-root > div { width: 100% !important; max-width: 100%; min-height: 100vh; min-height: 100dvh; padding: 12px; }
+#login-root > div > .module-card { width: 100%; max-width: 420px; margin: 0 !important; min-width: 0; }
+
+@media (max-width: 1024px) {
+    :root { --eu-table-cell-x: 10px; --eu-table-cell-y: 9px; }
+    #main-content { padding: var(--eu-page-gutter); }
+    #main-content .product-toolbar { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(130px, 170px)); }
+    .product-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-grid-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-grid-three > :last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 767px) {
+    :root { --eu-page-gutter: 12px; --eu-card-padding: 14px; }
+    #main-content { padding: var(--eu-page-gutter); }
+    #main-content .module-card,
+    #main-content .dashboard-panel,
+    #main-content .sc-card { padding: var(--eu-card-padding); }
+    #main-content .module-header,
+    #main-content .page-header { align-items: stretch; flex-direction: column; gap: 10px; }
+    #main-content .module-header > .btn,
+    #main-content .page-header > .btn { width: 100%; }
+    #main-content .form-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    /* Los estilos inline span 2 crean una columna implícita si no se neutralizan. */
+    #main-content .form-grid > .form-group[style*="grid-column"] { grid-column: 1 / -1 !important; }
+    #main-content .product-toolbar { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    #main-content .product-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    #main-content .product-summary-card { padding: 12px; }
+    #main-content .product-summary-card strong { font-size: clamp(20px, 5vw, 24px); }
+    .dashboard-hero { flex-direction: column; align-items: stretch; }
+    .dashboard-controls { grid-template-columns: minmax(0, 1fr); width: 100%; }
+    .dashboard-grid-main, .dashboard-grid-two, .dashboard-grid-three { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-grid-three > :last-child { grid-column: auto; }
+    .dashboard-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #main-content [style*="grid-template-columns: repeat(auto-fit, minmax(280px"] { grid-template-columns: minmax(0, 1fr) !important; }
+    #main-content .sc-section-title { align-items: flex-start; flex-direction: column; }
+    #main-content .dispatch-order-actions { align-items: stretch; }
+    #main-content .dispatch-order-actions .btn { flex: 1 1 100%; }
+    #login-root > div > .module-card { padding: 24px 18px !important; }
+    #login-root .logo-text { font-size: clamp(1.4rem, 6vw, 1.8rem) !important; }
+    #main-content .modal-footer > button,
+    #main-content .modal-footer > .btn,
+    #main-content .sc-modal-footer > button { flex: 1 1 120px; }
+}
+
+@media (max-width: 430px) {
+    :root { --eu-page-gutter: 10px; --eu-card-padding: 12px; --eu-table-cell-x: 8px; --eu-table-cell-y: 8px; }
+    #main-content { padding: var(--eu-page-gutter); }
+    #main-content .module-card,
+    #main-content .dashboard-panel,
+    #main-content .sc-card { padding: var(--eu-card-padding); }
+    #main-content .module-header h2,
+    #main-content .page-header h1 { font-size: clamp(1.15rem, 5.3vw, 1.4rem); line-height: 1.25; }
+    #main-content .module-header p,
+    #main-content .page-header p { font-size: .875rem; line-height: 1.45; }
+    #main-content .form-control { font-size: 16px; }
+    #main-content .btn { white-space: normal; }
+    #main-content .product-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #main-content .product-summary-label { font-size: 11px; }
+    #main-content .product-summary-card small { font-size: 10px; }
+    #main-content .euro-table th { font-size: 10px; letter-spacing: .02em; }
+    #main-content .euro-table th,
+    #main-content .euro-table td { padding: 8px; }
+    #main-content .product-table th:nth-child(5),
+    #main-content .product-table td:nth-child(5) { min-width: 124px; }
+    #main-content .status-badge,
+    #main-content .stock-badge { white-space: nowrap; }
+    #topbar { padding-inline: 8px; }
+    .page-context { min-width: 0; }
+    #toggle-sidebar { flex: 0 0 38px; }
+}
+
+@media (max-width: 359px) {
+    :root { --eu-page-gutter: 8px; --eu-card-padding: 10px; }
+    #topbar { padding-inline: 6px; }
+    .topbar-actions { gap: 2px; }
+    #main-content .product-summary-grid,
+    #main-content .dashboard-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+    #main-content .module-card,
+    #main-content .dashboard-panel,
+    #main-content .sc-card { padding: 10px; }
+}
+
+@media (min-width: 1025px) {
+    #main-content { padding: clamp(22px, 1.8vw, 32px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #main-content *, #login-root * { scroll-behavior: auto !important; }
+}

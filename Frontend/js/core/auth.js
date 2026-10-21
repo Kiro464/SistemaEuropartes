@@ -21,7 +21,9 @@ function decodeJwtPayload(accessToken) {
             '='
         );
 
-        return JSON.parse(atob(padded));
+        const binary = atob(padded);
+        const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+        return JSON.parse(new TextDecoder().decode(bytes));
     } catch (error) {
         console.error('No se pudo decodificar el access token:', error);
         return null;
@@ -42,14 +44,36 @@ function userFromPayload(payload) {
 }
 
 export const AuthService = {
+    /** Notifica cambios de identidad a los componentes de la SPA en esta pestaña. */
+    _emitSessionChanged(reason, previousUser = null, nextUser = this.getUser()) {
+        const identityKey = user => user ? `${user.user_id ?? ''}|${user.username ?? ''}|${user.grupo ?? ''}` : '';
+        const detail = {
+            reason,
+            authenticated: !!this.getToken(),
+            user: nextUser,
+            identityChanged: identityKey(previousUser) !== identityKey(nextUser)
+        };
+        window.dispatchEvent(new CustomEvent('europartes:session-changed', { detail }));
+    },
+
     setTokens(access, refresh) {
+        const previousUser = this.getUser();
+        // Evita mezclar un refresh token de una sesión anterior con el nuevo access.
         localStorage.setItem(CONFIG.TOKEN_KEY, access);
+        if (refresh) localStorage.setItem(CONFIG.REFRESH_KEY, refresh);
+        else localStorage.removeItem(CONFIG.REFRESH_KEY);
+        const user = this.setUserFromAccessToken(access);
+        this._emitSessionChanged('tokens-updated', previousUser, user);
+        return user;
+    },
 
-        if (refresh) {
-            localStorage.setItem(CONFIG.REFRESH_KEY, refresh);
-        }
-
-        this.setUserFromAccessToken(access);
+    clearSession({ redirect = false, reason = 'logout' } = {}) {
+        const previousUser = this.getUser();
+        localStorage.removeItem(CONFIG.TOKEN_KEY);
+        localStorage.removeItem(CONFIG.REFRESH_KEY);
+        localStorage.removeItem(CONFIG.USER_KEY);
+        this._emitSessionChanged(reason, previousUser, null);
+        if (redirect) window.location.hash = '#/login';
     },
 
     setUserFromAccessToken(access) {
@@ -73,27 +97,18 @@ export const AuthService = {
     },
 
     getUser() {
-        const raw = localStorage.getItem(CONFIG.USER_KEY);
+        const access = this.getToken();
+        if (!access) return null;
 
-        if (raw) {
-            try {
-                const user = JSON.parse(raw);
-                if (user && (user.grupo || user.nombres || user.username)) {
-                    return user;
-                }
-            } catch {
-                // Se reconstruye desde el token inmediatamente abajo.
-            }
+        // El access token es la fuente de verdad: la caché no puede conservar
+        // la identidad anterior después de un cambio de sesión.
+        const tokenUser = userFromPayload(decodeJwtPayload(access));
+        if (tokenUser && (tokenUser.user_id !== null || tokenUser.username || tokenUser.grupo)) {
+            localStorage.setItem(CONFIG.USER_KEY, JSON.stringify(tokenUser));
+            return tokenUser;
         }
 
-        // Recuperación de identidad para una sesión ya autenticada.
-        const recoveredUser = userFromPayload(decodeJwtPayload(this.getToken()));
-
-        if (recoveredUser) {
-            localStorage.setItem(CONFIG.USER_KEY, JSON.stringify(recoveredUser));
-            return recoveredUser;
-        }
-
+        localStorage.removeItem(CONFIG.USER_KEY);
         return null;
     },
 
@@ -115,9 +130,6 @@ export const AuthService = {
     },
 
     logout() {
-        localStorage.removeItem(CONFIG.TOKEN_KEY);
-        localStorage.removeItem(CONFIG.REFRESH_KEY);
-        localStorage.removeItem(CONFIG.USER_KEY);
-        window.location.hash = '#/login';
+        this.clearSession({ redirect: true, reason: 'logout' });
     }
 };

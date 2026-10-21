@@ -1,8 +1,10 @@
 import openpyxl
+from datetime import date
 from decimal import Decimal
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from django.http import HttpResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -246,26 +248,46 @@ class FiltrosHistorialMixin:
         # select_related optimiza la consulta a la BD trayendo las tablas hijas en 1 solo viaje
         queryset = FacturaVenta.objects.select_related('venta', 'venta__cliente', 'venta__empleado').all()
 
-        # Capturar query params
+        # Capturar y validar filtros antes de construir la consulta para
+        # devolver errores 400 controlados en vez de errores de base de datos.
         fecha_inicio = request.query_params.get('fecha_inicio')
         fecha_fin = request.query_params.get('fecha_fin')
         cliente_id = request.query_params.get('cliente_id')
         empleado_id = request.query_params.get('empleado_id')
         producto_id = request.query_params.get('producto_id')
 
-        # Aplicar filtros dinámicos
-        if fecha_inicio:
-            queryset = queryset.filter(venta__fecha__date__gte=fecha_inicio)
-        if fecha_fin:
-            queryset = queryset.filter(venta__fecha__date__lte=fecha_fin)
-        if cliente_id:
-            queryset = queryset.filter(venta__cliente_id=cliente_id)
-        if empleado_id:
-            queryset = queryset.filter(venta__empleado_id=empleado_id)
-        if producto_id:
+        fechas = {}
+        for nombre, valor in (('fecha_inicio', fecha_inicio), ('fecha_fin', fecha_fin)):
+            if valor:
+                try:
+                    fechas[nombre] = date.fromisoformat(valor)
+                except (TypeError, ValueError):
+                    raise ValidationError({nombre: 'Debe utilizar el formato YYYY-MM-DD.'})
+        if fechas.get('fecha_inicio') and fechas.get('fecha_fin') and fechas['fecha_inicio'] > fechas['fecha_fin']:
+            raise ValidationError({'fecha_fin': 'No puede ser anterior a fecha_inicio.'})
+
+        ids = {}
+        for nombre, valor in (('cliente_id', cliente_id), ('empleado_id', empleado_id), ('producto_id', producto_id)):
+            if valor:
+                try:
+                    ids[nombre] = int(valor)
+                    if ids[nombre] <= 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise ValidationError({nombre: 'Debe ser un entero positivo.'})
+
+        if 'fecha_inicio' in fechas:
+            queryset = queryset.filter(venta__fecha__date__gte=fechas['fecha_inicio'])
+        if 'fecha_fin' in fechas:
+            queryset = queryset.filter(venta__fecha__date__lte=fechas['fecha_fin'])
+        if 'cliente_id' in ids:
+            queryset = queryset.filter(venta__cliente_id=ids['cliente_id'])
+        if 'empleado_id' in ids:
+            queryset = queryset.filter(venta__empleado_id=ids['empleado_id'])
+        if 'producto_id' in ids:
             # distinct() evita duplicar facturas cuando una venta
             # tiene múltiples detalles que coinciden con el producto filtrado.
-            queryset = queryset.filter(venta__detalleventa__producto_id=producto_id).distinct()
+            queryset = queryset.filter(venta__detalleventa__producto_id=ids['producto_id']).distinct()
 
         # Ordenar de la más reciente a la más antigua
         return queryset.order_by('-venta__fecha')
@@ -279,25 +301,22 @@ class HistorialFacturasAPIView(APIView, FiltrosHistorialMixin):
 
     def get(self, request):
 
+        es_vendedor = usuario_tiene_rol(request.user, "Vendedor")
         empleado = getattr(request.user, "empleado", None)
 
-        if not empleado:
+        # Solo el vendedor necesita la relación laboral para limitar su
+        # consulta a sus propias ventas. Los roles de consulta global no
+        # deben quedar bloqueados por carecer de perfil de empleado.
+        if es_vendedor and not empleado:
             return Response(
                 {"detail": "El usuario no tiene un empleado asociado."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        es_vendedor = usuario_tiene_rol(
-            request.user,
-            "Vendedor",
-        )
-
         queryset = self.obtener_queryset_filtrado(request)
 
         if es_vendedor:
-            queryset = queryset.filter(
-                venta__empleado_id=empleado.id
-            )
+            queryset = queryset.filter(venta__empleado_id=empleado.id)
 
         serializer = HistorialFacturaSerializer(queryset, many=True)
 
@@ -328,6 +347,24 @@ class ExportarFacturasExcelAPIView(APIView, FiltrosHistorialMixin):
 
             queryset = queryset.filter(
                 venta__empleado_id=empleado.id
+            )
+
+        termino = request.query_params.get("busqueda", "").strip().casefold()
+        if termino:
+            datos_busqueda = HistorialFacturaSerializer(queryset, many=True).data
+            ids_coincidentes = [
+                registro["id"] for registro in datos_busqueda
+                if any(
+                    termino in str(registro.get(campo) or "").casefold()
+                    for campo in ("id", "fecha", "cliente", "empleado")
+                )
+            ]
+            queryset = queryset.filter(pk__in=ids_coincidentes)
+
+        if not queryset.exists():
+            return Response(
+                {"detail": "No hay ventas que coincidan con los filtros para exportar."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         # Configurar la respuesta HTTP para que el navegador inicie una descarga

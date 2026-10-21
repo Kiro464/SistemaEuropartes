@@ -47,13 +47,23 @@ export const ROUTE_PERMISSIONS = Object.freeze({
         ROLES.SOPORTE_TI
     ],
     '#/clientes': [ROLES.VENDEDOR, ROLES.SOPORTE_TI],
+    '#/marcas': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    '#/proveedores': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    '#/paises': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    '#/departamentos': [ROLES.OFICIAL_LOGISTICA, ROLES.SOPORTE_TI],
     '#/empleados': [ROLES.OFICIAL_LOGISTICA, ROLES.SOPORTE_TI],
-    '#/reportes': [
-        ROLES.ADMINISTRADOR_GENERAL,
-        ROLES.ASESOR_FINANCIERO,
-        ROLES.VENDEDOR,
-        ROLES.COORDINADOR_LOGISTICA,
-        ROLES.OFICIAL_LOGISTICA
+    '#/usuarios': [ROLES.SOPORTE_TI],
+    '#/historial/ventas': [
+        ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO, ROLES.VENDEDOR,
+        ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA
+    ],
+    '#/historial/compras': [
+        ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO,
+        ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA
+    ],
+    '#/inventario/kardex': [
+        ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO,
+        ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA
     ],
     '#/configuracion': ALL
 });
@@ -81,16 +91,29 @@ export const ACTION_PERMISSIONS = Object.freeze({
 
     // Catálogos de logística
     'marca.ver': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'marca.crear': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'marca.editar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'marca.eliminar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
     'marca.gestionar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
     'proveedor.ver': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'proveedor.crear': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'proveedor.editar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'proveedor.eliminar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
     'proveedor.gestionar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
     'pais.ver': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'pais.crear': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'pais.editar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
+    'pais.eliminar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
     'pais.gestionar': [ROLES.COORDINADOR_LOGISTICA, ROLES.SOPORTE_TI],
 
     // Administración
     'empleado.ver': [ROLES.OFICIAL_LOGISTICA, ROLES.SOPORTE_TI],
     'empleado.gestionar': [ROLES.SOPORTE_TI],
+    'usuario.gestionar': [ROLES.SOPORTE_TI],
     'departamento.ver': [ROLES.OFICIAL_LOGISTICA, ROLES.SOPORTE_TI],
+    'departamento.crear': [ROLES.SOPORTE_TI],
+    'departamento.editar': [ROLES.SOPORTE_TI],
+    'departamento.eliminar': [ROLES.SOPORTE_TI],
     'departamento.gestionar': [ROLES.SOPORTE_TI],
 
     // Ventas

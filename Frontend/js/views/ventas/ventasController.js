@@ -5,6 +5,7 @@ import { ClientesService } from '../clientes/clientesService.js';
 import { escapeHtml } from '../../utils/escapeHtml.js';
 import { ClientesController } from '../clientes/clientesController.js';
 import { UI } from '../../components/ui.js';
+import { getErrorMessage } from '../../utils/errorMessage.js';
 import { StateManager } from '../../core/state.js';
 
 export const VentasController = {
@@ -285,8 +286,10 @@ export const VentasController = {
             // FASE 3: Capturamos snapshot del detalle del carrito ANTES de procesar la venta
             const detallesVentaSnapshot = [...this.carrito];
 
+            const confirmButton = document.getElementById('btn-confirmar-venta');
             UI.showGlobalLoader();
-            document.getElementById('btn-confirmar-venta').disabled = true;
+            confirmButton.disabled = true;
+            confirmButton.setAttribute('aria-busy', 'true');
 
             try {
                 const facturaGenerada = await VentasService.generarFactura(payload);
@@ -300,17 +303,15 @@ export const VentasController = {
                 this.updateFacturaButtonState();
                 this.loadProductosPos(); 
             } catch (error) {
-                const detail = error?.data?.detail
-                    || error?.data?.error
-                    || error?.data?.non_field_errors?.[0]
-                    || 'Error procesando la venta';
-                UI.showToast(String(detail), 'error');
-                document.getElementById('btn-confirmar-venta').disabled = false;
+                UI.showToast(getErrorMessage(error, 'No fue posible procesar la venta. El carrito se conserva para que puedas reintentar.'), 'error');
+                confirmButton.disabled = false;
+                confirmButton.removeAttribute('aria-busy');
                 // La disponibilidad puede haber cambiado por otra venta concurrente.
                 // Recargamos el catálogo sin alterar el carrito.
                 await this.loadProductosPos(document.getElementById('search-pos-producto')?.value?.trim() || '');
             } finally {
                 UI.hideGlobalLoader();
+                if (confirmButton.isConnected) { confirmButton.removeAttribute('aria-busy'); this.updateFacturaButtonState(); }
             }
         });
 

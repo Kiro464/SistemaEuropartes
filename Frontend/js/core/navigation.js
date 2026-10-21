@@ -31,6 +31,10 @@ export const NAVIGATION = Object.freeze([
         label: 'Catálogos',
         items: [
             { route: '#/clientes', label: 'Clientes', icon: 'bx-group' },
+            { route: '#/marcas', label: 'Marcas', icon: 'bx-tag' },
+            { route: '#/proveedores', label: 'Proveedores', icon: 'bxs-truck' },
+            { route: '#/paises', label: 'Países', icon: 'bx-globe' },
+            { route: '#/departamentos', label: 'Departamentos', icon: 'bx-building' },
             { route: '#/empleados', label: 'Empleados', icon: 'bx-id-card' }
         ]
     },
@@ -38,14 +42,17 @@ export const NAVIGATION = Object.freeze([
         key: 'reportes',
         label: 'Reportes',
         items: [
-            { route: '#/reportes', label: 'Historial', icon: 'bx-bar-chart-alt-2' }
+            { route: '#/historial/ventas', label: 'Historial de ventas', icon: 'bx-receipt' },
+            { route: '#/historial/compras', label: 'Historial de compras', icon: 'bx-cart-download' },
+            { route: '#/inventario/kardex', label: 'Kardex de inventario', icon: 'bx-transfer-alt' }
         ]
     },
     {
         key: 'sistema',
         label: 'Sistema',
         items: [
-            { route: '#/configuracion', label: 'Configuración', icon: 'bx-cog' }
+            { route: '#/configuracion', label: 'Configuración', icon: 'bx-cog' },
+            { route: '#/usuarios', label: 'Usuarios y roles', icon: 'bx-user' }
         ]
     }
 ]);

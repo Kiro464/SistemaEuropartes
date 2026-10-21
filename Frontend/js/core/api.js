@@ -5,9 +5,14 @@
  */
 import { CONFIG } from './config.js';
 import { AuthService } from './auth.js';
+import { RBAC } from './rbac.js';
 
 export const ApiService = {
     _refreshPromise: null,
+    _loaderSafeParse(text) {
+        if (!text || !text.trim()) return null;
+        try { return JSON.parse(text); } catch { return { detail: text.trim().slice(0, 500) }; }
+    },
 
     _isAuthEndpoint(endpoint) {
         return endpoint === CONFIG.AUTH_LOGIN_ENDPOINT
@@ -44,7 +49,16 @@ export const ApiService = {
 
             if (response.ok) {
                 const data = await response.json();
+                if (!data?.access) return false;
+                const previousRole = AuthService.getRole();
                 AuthService.setTokens(data.access, data.refresh || refresh);
+                const currentRole = AuthService.getRole();
+                if (currentRole && previousRole && currentRole !== previousRole) {
+                    // El backend ha actualizado la autorización vigente. Evita
+                    // mantener una pantalla/ruta del rol anterior en el shell.
+                    window.location.hash = RBAC.getDefaultRoute(currentRole);
+                    return { roleChanged: true };
+                }
                 return true;
             }
             return false;
@@ -71,40 +85,65 @@ export const ApiService = {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        let config = { ...options, headers };
+        const responseType = options.responseType || 'json';
+        const requestOptions = { ...options };
+        delete requestOptions.responseType;
+        let config = { ...requestOptions, headers };
 
         try {
             let response = await fetch(url, config);
 
             if (response.status === 401 && token && !isAuthEndpoint) {
                 const refreshed = await this._refreshToken();
+                if (refreshed?.roleChanged) {
+                    throw {
+                        status: 403,
+                        data: { detail: 'El rol de la cuenta cambió. Se actualizó la sesión y se abrió la ruta inicial del nuevo rol.' },
+                        message: 'El rol de la cuenta cambió.'
+                    };
+                }
                 if (refreshed) {
                     headers['Authorization'] = `Bearer ${AuthService.getToken()}`;
                     config.headers = headers;
                     response = await fetch(url, config);
                 } else {
                     AuthService.logout();
-                    throw new Error("Sesión expirada");
+                    throw { status: 401, code: 'AUTH_EXPIRED', message: 'Sesión expirada' };
                 }
             }
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
+                const errorText = await response.text().catch(() => '');
+                const errorData = this._loaderSafeParse(errorText) || {};
                 throw { status: response.status, data: errorData, message: 'Error en la petición al servidor' };
             }
 
             if (response.status === 204) return null;
+            if (responseType === 'blob') return await response.blob();
 
-            return await response.json();
+            const responseText = await response.text();
+            if (!responseText.trim()) return null;
+            try {
+                return JSON.parse(responseText);
+            } catch {
+                throw { code: 'INVALID_RESPONSE', status: response.status, message: 'El servidor devolvió una respuesta en un formato inesperado.' };
+            }
 
         } catch (error) {
-            console.error(`API Error en ${endpoint}:`, error);
+            if (error && (error.status || error.code === 'INVALID_RESPONSE')) throw error;
+            if (error instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(error?.message || '')) {
+                throw { code: 'NETWORK_ERROR', message: 'No fue posible conectar con el servidor. Comprueba tu conexión e inténtalo nuevamente.' };
+            }
             throw error;
         }
     },
 
     get(endpoint) {
         return this._request(endpoint, { method: 'GET' });
+    },
+
+    getBlob(endpoint) {
+        return this._request(endpoint, { method: 'GET', responseType: 'blob' });
     },
 
     post(endpoint, data) {
