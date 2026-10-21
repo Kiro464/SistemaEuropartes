@@ -26,8 +26,14 @@ from apps.movimientos.setting_apps import MOVIMIENTOS_SETTING_APPS
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-^$e1=bfcvsz&52^!r!3u4g6glugj&!6-g_^vp^v2b*$rr-db3o'
+from django.core.exceptions import ImproperlyConfigured
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "La variable de entorno DJANGO_SECRET_KEY no está configurada."
+    )
 
 # Configuración de producción mediante variables de entorno.
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").strip().lower() in (
