@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
+
 from pathlib import Path
 from datetime import timedelta
 
@@ -27,10 +29,22 @@ from apps.movimientos.setting_apps import MOVIMIENTOS_SETTING_APPS
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-^$e1=bfcvsz&52^!r!3u4g6glugj&!6-g_^vp^v2b*$rr-db3o'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Configuración de producción mediante variables de entorno.
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").strip().lower() in (
+    "true",
+    "1",
+    "yes",
+    "on",
+)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        "DJANGO_ALLOWED_HOSTS",
+        "europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net,localhost,127.0.0.1",
+    ).split(",")
+    if host.strip()
+]
 
 
 # Application definition
