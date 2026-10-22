@@ -5,7 +5,7 @@
 
 export const CONFIG = {
     // URL base del backend Django
-    API_URL: 'http://127.0.0.1:8000',
+    API_URL: 'https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net',
 
     // Rutas de Autenticación (únicas rutas oficiales de JWT)
     AUTH_LOGIN_ENDPOINT: '/api/token/',
