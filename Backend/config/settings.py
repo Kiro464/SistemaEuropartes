@@ -104,13 +104,6 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
 DATABASES = {
     'default': {
         'ENGINE': 'mssql',  # Utilizamos el backend mssql-django
@@ -152,6 +145,44 @@ DATABASES = {
         },
     },
 }
+
+# ============================================================
+# CONFIGURACIÓN AZURE SQL MEDIANTE IDENTIDAD ADMINISTRADA
+# ============================================================
+
+# WEBSITE_INSTANCE_ID es una variable de entorno proporcionada
+# automáticamente por Azure App Service.
+# En el entorno local se conserva la configuración existente.
+
+if os.environ.get("WEBSITE_INSTANCE_ID"):
+
+    AZURE_SQL_HOST = os.getenv(
+        "DB_HOST",
+        "sql-europartes.database.windows.net"
+    )
+
+    AZURE_SQL_PORT = os.getenv("DB_PORT", "1433")
+
+    AZURE_SQL_DRIVER = "ODBC Driver 18 for SQL Server"
+
+    # Bases de datos utilizadas directamente por Django.
+    AZURE_DATABASES = {
+        "default": os.getenv("DB_NAME", "AutoPartes"),
+        "dw": os.getenv("DW_DB_NAME", "DWAutoPartes"),
+    }
+
+    for alias, database_name in AZURE_DATABASES.items():
+        DATABASES[alias].update({
+            "NAME": database_name,
+            "HOST": AZURE_SQL_HOST,
+            "PORT": AZURE_SQL_PORT,
+            "USER": "",
+            "PASSWORD": "",
+            "OPTIONS": {
+                "driver": AZURE_SQL_DRIVER,
+                "extra_params": "Authentication=ActiveDirectoryMsi",
+            },
+        })
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
