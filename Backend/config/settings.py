@@ -263,6 +263,9 @@ AUTH_USER_MODEL = 'usuarios.User'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
+
+    # Frontend publicado en Azure Static Web Apps
+    "https://gray-meadow-08cad401e.6.azurestaticapps.net",
 ]
 
 # ==========================================
