@@ -280,9 +280,6 @@ CORS_ALLOWED_ORIGINS = [
 
     # Frontend publicado en Azure Static Web Apps
     "https://gray-meadow-08cad401e.6.azurestaticapps.net",
-
-    # API publicada en Azure - App Services
-    "https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net/swagger/",
 ]
 
 # ==========================================
