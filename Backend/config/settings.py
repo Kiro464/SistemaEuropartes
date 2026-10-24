@@ -282,7 +282,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://gray-meadow-08cad401e.6.azurestaticapps.net",
 
     # API publicada en Azure - App Services
-    "https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net",
+    "https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net/swagger/",
 ]
 
 # ==========================================
