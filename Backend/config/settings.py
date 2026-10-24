@@ -291,3 +291,9 @@ SSIS_ETL = {
     "project": "ETL_Europartes",
     "package": "00_Master_ETL.dtsx",
 }
+
+# La aplicación está publicada detrás del proxy HTTPS de Azure.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Azure termina HTTPS en el proxy y reenvía la petición al backend.
+USE_X_FORWARDED_HOST = True
