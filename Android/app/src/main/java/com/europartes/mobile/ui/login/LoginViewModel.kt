@@ -5,17 +5,18 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.remote.ApiClient
+import com.europartes.mobile.data.remote.AuthenticatedUser
 import com.europartes.mobile.data.repository.AuthRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
- data class LoginUiState(
+data class LoginUiState(
     val username: String = "",
     val password: String = "",
     val isLoading: Boolean = false,
-    val authenticatedUsername: String? = null,
+    val authenticatedUser: AuthenticatedUser? = null,
     val errorMessage: String? = null,
 )
 
@@ -42,11 +43,14 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             val result = repository.login(current.username, current.password)
             _uiState.value = result.fold(
-                onSuccess = { username ->
-                    LoginUiState(authenticatedUsername = username)
+                onSuccess = { user ->
+                    LoginUiState(authenticatedUser = user)
                 },
                 onFailure = { error ->
-                    _uiState.value.copy(isLoading = false, errorMessage = error.message ?: "No se pudo iniciar sesión.")
+                    _uiState.value.copy(
+                        isLoading = false,
+                        errorMessage = error.message ?: "No se pudo iniciar sesión.",
+                    )
                 },
             )
         }

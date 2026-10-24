@@ -9,9 +9,22 @@ data class LoginRequest(
     @SerializedName("password") val password: String,
 )
 
+/**
+ * Perfil devuelto realmente por EuropartesTokenObtainPairSerializer.
+ * "grupo" es el nombre del rol funcional validado por Django.
+ */
+data class AuthenticatedUser(
+    @SerializedName("user_id") val userId: Int,
+    @SerializedName("username") val username: String,
+    @SerializedName("nombres") val nombres: String,
+    @SerializedName("apellidos") val apellidos: String,
+    @SerializedName("grupo") val grupo: String,
+)
+
 data class TokenResponse(
     @SerializedName("access") val access: String,
     @SerializedName("refresh") val refresh: String? = null,
+    @SerializedName("user") val user: AuthenticatedUser? = null,
 )
 
 data class RefreshRequest(
