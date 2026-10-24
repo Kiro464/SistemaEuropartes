@@ -101,9 +101,27 @@ class AuthRepository(
             }
             tokenStore.save(response.access, response.refresh ?: refresh)
             Result.success(response.access)
+        } catch (e: HttpException) {
+            // Solo limpiar la sesión cuando el backend rechaza expresamente el refresh.
+            if (e.code() == 400 || e.code() == 401) {
+                tokenStore.clear()
+                Result.failure(IllegalStateException("La sesión expiró. Inicia sesión nuevamente."))
+            } else {
+                // Un error 5xx no demuestra que el refresh token sea inválido.
+                Result.failure(
+                    IllegalStateException("No se pudo renovar la sesión (HTTP ${e.code()}). Inténtalo de nuevo.")
+                )
+            }
+        } catch (_: IOException) {
+            // Conservar los tokens durante fallos temporales de conectividad.
+            Result.failure(
+                IllegalStateException("No se pudo conectar con Azure para renovar la sesión. Inténtalo de nuevo.")
+            )
         } catch (_: Exception) {
-            tokenStore.clear()
-            Result.failure(IllegalStateException("La sesión expiró. Inicia sesión nuevamente."))
+            // Un error inesperado no debe cerrar por sí solo una sesión potencialmente válida.
+            Result.failure(
+                IllegalStateException("Ocurrió un error al renovar la sesión. Inténtalo de nuevo.")
+            )
         }
     }
 

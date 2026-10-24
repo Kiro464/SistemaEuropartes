@@ -3,9 +3,11 @@ package com.europartes.mobile.ui.products
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.europartes.mobile.data.local.DatabaseProvider
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.remote.ApiClient
 import com.europartes.mobile.data.remote.ProductDto
+import com.europartes.mobile.data.repository.LocalProductRepository
 import com.europartes.mobile.data.repository.ProductRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +25,7 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
     private val repository = ProductRepository(
         ApiClient.productApi(TokenStore(application))
     )
+    private val localRepository = LocalProductRepository(DatabaseProvider.get(application).productDao())
     private val _uiState = MutableStateFlow(ProductsUiState())
     val uiState: StateFlow<ProductsUiState> = _uiState.asStateFlow()
 
@@ -32,6 +35,8 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             repository.getProducts().fold(
                 onSuccess = { products ->
+                    // Room cache is local only; the API remains authoritative.
+                    runCatching { localRepository.cacheRemote(products) }
                     _uiState.value = ProductsUiState(
                         isLoading = false,
                         products = products,

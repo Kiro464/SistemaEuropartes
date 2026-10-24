@@ -3,36 +3,25 @@ package com.europartes.mobile.ui.navigation
 import com.europartes.mobile.data.repository.EuropartesRoles
 
 enum class MobileDestination(val label: String, val description: String) {
-    PRODUCTS("Productos", "Consulta del catálogo e inventario"),
-    MODULES("Módulos", "Cobertura móvil planificada"),
+    PRODUCTS("Productos del servidor", "Consulta de productos autorizados por Django"),
+    LOCAL_DRAFTS("Borradores locales", "CRUD local persistido en Room"),
 }
 
 data class NavigationItem(
     val destination: MobileDestination,
     val label: String,
-    val enabled: Boolean,
+    val enabled: Boolean = true,
 )
 
 /**
- * La navegación solo habilita pantallas que existen en Android y que el rol
- * puede consultar según el permiso real del backend. Los módulos futuros no
- * aparecen como funciones operativas; se documentan por separado.
+ * Solo enumera pantallas que existen y cuyo acceso de interfaz está permitido
+ * por las reglas de rol confirmadas en Django. Django sigue siendo la autoridad.
  */
 fun navigationForRole(role: String): List<NavigationItem> = buildList {
     if (role in EuropartesRoles.canReadProducts) {
-        add(
-            NavigationItem(
-                destination = MobileDestination.PRODUCTS,
-                label = "Productos",
-                enabled = true,
-            )
-        )
+        add(NavigationItem(MobileDestination.PRODUCTS, MobileDestination.PRODUCTS.label))
     }
-    add(
-        NavigationItem(
-            destination = MobileDestination.MODULES,
-            label = "Módulos",
-            enabled = true,
-        )
-    )
+    if (role in EuropartesRoles.canManageProductsInBackend) {
+        add(NavigationItem(MobileDestination.LOCAL_DRAFTS, MobileDestination.LOCAL_DRAFTS.label))
+    }
 }
