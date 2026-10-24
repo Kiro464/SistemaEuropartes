@@ -1,16 +1,47 @@
 package com.europartes.mobile.data.remote
 
+import com.europartes.mobile.data.local.TokenStore
+import com.europartes.mobile.data.repository.JwtAuthenticator
+import com.europartes.mobile.data.repository.ReadRetryInterceptor
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object ApiClient {
     private const val BASE_URL = "https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net/"
 
-    val authApi: AuthApi by lazy {
+    private val converterFactory by lazy { GsonConverterFactory.create() }
+
+    private val baseClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    val authApi: AuthApi by lazy { retrofit(baseClient).create(AuthApi::class.java) }
+
+    fun productApi(tokenStore: TokenStore): ProductApi {
+        val authenticatedClient = baseClient.newBuilder()
+            .addInterceptor { chain ->
+                val token = tokenStore.accessToken()
+                val request = chain.request().newBuilder().apply {
+                    if (!token.isNullOrBlank()) header("Authorization", "Bearer $token")
+                }.build()
+                chain.proceed(request)
+            }
+            .authenticator(JwtAuthenticator(tokenStore, authApi))
+            .addInterceptor(ReadRetryInterceptor(maxRetries = 2))
+            .build()
+        return retrofit(authenticatedClient).create(ProductApi::class.java)
+    }
+
+    private fun retrofit(client: OkHttpClient): Retrofit =
         Retrofit.Builder()
             .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
+            .client(client)
+            .addConverterFactory(converterFactory)
             .build()
-            .create(AuthApi::class.java)
-    }
 }
