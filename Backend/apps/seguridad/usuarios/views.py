@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_yasg.utils import swagger_auto_schema
@@ -168,6 +168,48 @@ class UsuarioRestablecerClaveAPIView(APIView):
         user.set_password(serializer.validated_data["password"])
         user.save(update_fields=["password"])
         return Response({"detail": "Contraseña restablecida correctamente."}, status=status.HTTP_200_OK)
+
+
+class CambiarClavePropiaSerializer(serializers.Serializer):
+    password_actual = serializers.CharField(write_only=True, required=True, trim_whitespace=False)
+    password = serializers.CharField(write_only=True, required=True, trim_whitespace=False)
+    password2 = serializers.CharField(write_only=True, required=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        user = self.context["user"]
+        if not user.check_password(attrs["password_actual"]):
+            raise ValidationError({"password_actual": "La contraseña actual no es correcta."})
+        if attrs["password"] != attrs["password2"]:
+            raise ValidationError({"password2": "Las contraseñas no coinciden."})
+        if attrs["password"] == attrs["password_actual"]:
+            raise ValidationError({"password": "La nueva contraseña debe ser diferente a la actual."})
+        try:
+            validate_password(attrs["password"], user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": exc.messages})
+        return attrs
+
+
+class CambiarClavePropiaAPIView(APIView):
+    """Permite a cualquier cuenta autenticada cambiar su propia contraseña."""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=CambiarClavePropiaSerializer)
+    def post(self, request):
+        user = request.user
+        serializer = CambiarClavePropiaSerializer(data=request.data, context={"user": user})
+        serializer.is_valid(raise_exception=True)
+        user.set_password(serializer.validated_data["password"])
+        user.save(update_fields=["password"])
+        # Se emite un par nuevo para que la sesión actual continúe sin pedir login.
+        refresh = EuropartesTokenObtainPairSerializer.get_token(user)
+        return Response({
+            "detail": "Contraseña actualizada correctamente.",
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+        }, status=status.HTTP_200_OK)
 
 
 class UsuarioEstadoAPIView(APIView):

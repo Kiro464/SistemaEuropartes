@@ -14,9 +14,25 @@ export const ProveedoresController = {
         const root = document.getElementById('main-content'); if (!root) return;
         root.innerHTML = ProveedoresView.render(); this.bindEvents(root); RBAC.applyActionVisibility(root); await this.loadTable(); RBAC.applyActionVisibility(root);
     },
+    onSuccess: null,
     bindEvents(root) {
         root.querySelector('#btn-nuevo-proveedor')?.addEventListener('click', () => this.openModal());
-        const modal = root.querySelector('#proveedor-modal');
+        this.bindModalEvents(root.querySelector('#proveedor-modal'));
+        root.querySelector('#proveedores-table-container')?.addEventListener('click', e => {
+            const edit = e.target.closest('.btn-edit-prov'), del = e.target.closest('.btn-delete-prov');
+            if (edit && this.can('proveedor.editar')) this.openModal(edit.dataset.id);
+            if (del && this.can('proveedor.eliminar')) this.remove(del.dataset.id);
+        });
+    },
+    // Permite abrir la ficha desde otras vistas (p. ej. Productos) aunque el modal no esté en el DOM.
+    initModal() {
+        let modal = document.getElementById('proveedor-modal');
+        if (!modal) { document.body.insertAdjacentHTML('beforeend', ProveedoresView.renderModal()); modal = document.getElementById('proveedor-modal'); }
+        this.bindModalEvents(modal); return modal;
+    },
+    bindModalEvents(modal) {
+        if (!modal || modal.dataset.eventsBound === 'true') return;
+        modal.dataset.eventsBound = 'true';
         modal?.querySelector('#btn-close-proveedor-modal')?.addEventListener('click', () => this.closeModal());
         modal?.addEventListener('click', e => { if (e.target === modal) this.closeModal(); });
         modal?.querySelector('#btn-save-proveedor')?.addEventListener('click', () => this.save());
@@ -32,11 +48,6 @@ export const ProveedoresController = {
             if (!this.can('pais.editar')) return UI.showToast('No tienes permisos para administrar países.', 'error');
             PaisesController.onSuccess = async () => { const selected = document.getElementById('prov_pais')?.value; await this.loadDependencias(); const select = document.getElementById('prov_pais'); if (select && selected) select.value = selected; };
             PaisesController.openModal(paisId);
-        });
-        root.querySelector('#proveedores-table-container')?.addEventListener('click', e => {
-            const edit = e.target.closest('.btn-edit-prov'), del = e.target.closest('.btn-delete-prov');
-            if (edit && this.can('proveedor.editar')) this.openModal(edit.dataset.id);
-            if (del && this.can('proveedor.eliminar')) this.remove(del.dataset.id);
         });
     },
     async loadDependencias() {
@@ -64,13 +75,17 @@ export const ProveedoresController = {
             container.innerHTML = `<table class="euro-table"><thead><tr><th scope="col">ID</th><th scope="col">Proveedor</th><th scope="col">País</th><th scope="col">Teléfono</th><th scope="col">Correo</th><th scope="col">Acciones</th></tr></thead><tbody>${rows}</tbody></table>`;
         } catch (error) { console.error('[Catálogos/proveedores] Falló la carga de datos:', error); container.innerHTML = `<div class="catalog-state is-error" role="alert">${escapeHtml(getErrorMessage(error, 'No fue posible cargar proveedores o países.'))}</div>`; }
     },
-    async openModal(id = null) {
-        if (!this.can(id ? 'proveedor.editar' : 'proveedor.crear')) return UI.showToast('No tienes permisos para esta acción.', 'error');
+    async openModal(id = null, readOnly = false) {
+        const action = readOnly ? 'proveedor.ver' : (id ? 'proveedor.editar' : 'proveedor.crear');
+        if (!this.can(action)) return UI.showToast('No tienes permisos para esta acción.', 'error');
+        this.initModal();
         const form = document.getElementById('form-proveedor'); if (!form) return;
         form.reset(); document.getElementById('prov_id').value = id || '';
-        document.getElementById('proveedor-modal-title').textContent = id ? 'Editar proveedor' : 'Nuevo proveedor';
-        document.getElementById('btn-add-pais-sub').style.display = this.can('pais.crear') ? 'inline-flex' : 'none';
-        document.getElementById('btn-edit-pais-sub').style.display = this.can('pais.editar') ? 'inline-flex' : 'none';
+        document.getElementById('proveedor-modal-title').textContent = readOnly ? 'Detalle de proveedor' : (id ? 'Editar proveedor' : 'Nuevo proveedor');
+        Array.from(form.elements).forEach(el => { if (el.type !== 'hidden') el.disabled = readOnly; });
+        document.getElementById('btn-save-proveedor').style.display = readOnly ? 'none' : 'inline-flex';
+        document.getElementById('btn-add-pais-sub').style.display = !readOnly && this.can('pais.crear') ? 'inline-flex' : 'none';
+        document.getElementById('btn-edit-pais-sub').style.display = !readOnly && this.can('pais.editar') ? 'inline-flex' : 'none';
         UI.showGlobalLoader();
         try {
             await this.loadDependencias();
@@ -95,7 +110,7 @@ export const ProveedoresController = {
         const payload = { nombre: document.getElementById('prov_nombre').value.trim(), pais: Number(countryId), telefono: document.getElementById('prov_telefono').value.trim(), email: document.getElementById('prov_email').value.trim(), sitio_web: document.getElementById('prov_sitio_web').value.trim(), estado: true };
         if (!payload.nombre || !countryId || !payload.telefono || !payload.email || !payload.sitio_web) return;
         UI.showGlobalLoader();
-        try { if (id) await ProveedoresService.update(id, payload); else await ProveedoresService.create(payload); this.closeModal(); UI.showToast('Proveedor guardado correctamente.', 'success'); await this.loadTable(); }
+        try { const result = id ? await ProveedoresService.update(id, payload) : await ProveedoresService.create(payload); const callback = this.onSuccess; this.closeModal(); UI.showToast('Proveedor guardado correctamente.', 'success'); await this.loadTable(); if (callback) await callback(id || result?.id); }
         catch (error) { UI.showToast(getErrorMessage(error, 'No fue posible guardar el proveedor.'), 'error'); } finally { UI.hideGlobalLoader(); }
     },
     async remove(id) {
@@ -104,5 +119,5 @@ export const ProveedoresController = {
         UI.showGlobalLoader(); try { await ProveedoresService.delete(id); UI.showToast('Proveedor eliminado.', 'success'); await this.loadTable(); }
         catch (error) { UI.showToast(getErrorMessage(error, 'No fue posible eliminar el proveedor.'), 'error'); } finally { UI.hideGlobalLoader(); }
     },
-    closeModal() { document.getElementById('proveedor-modal')?.classList.remove('show'); document.getElementById('form-proveedor')?.reset(); }
+    closeModal() { const modal = document.getElementById('proveedor-modal'); const root = document.getElementById('main-content'); document.getElementById('form-proveedor')?.reset(); if (modal && !root?.contains(modal)) modal.remove(); else modal?.classList.remove('show'); this.onSuccess = null; }
 };

@@ -65,7 +65,9 @@ export const ROUTE_PERMISSIONS = Object.freeze({
         ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO,
         ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA
     ],
-    '#/configuracion': ALL
+    '#/configuracion': ALL,
+    // Pantalla informativa; debe ser accesible para evitar bucles del guard.
+    '#/sin-acceso': ALL
 });
 
 /**
@@ -125,14 +127,19 @@ export const ACTION_PERMISSIONS = Object.freeze({
     // Solicitudes y compras
     'solicitudCompra.crear': [ROLES.VENDEDOR],
     'solicitudCompra.ver': [ROLES.VENDEDOR, ROLES.COORDINADOR_LOGISTICA],
+    'solicitudCompra.modificar': [ROLES.VENDEDOR],
     'solicitudCompra.gestionar': [ROLES.COORDINADOR_LOGISTICA],
     'compra.ver': [ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO, ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA],
     'compra.gestionar': [ROLES.COORDINADOR_LOGISTICA],
     'compra.iniciar': [ROLES.COORDINADOR_LOGISTICA],
+    'compra.cancelar': [ROLES.COORDINADOR_LOGISTICA],
     'compra.aprobar': [ROLES.ASESOR_FINANCIERO],
     'compra.recibir': [ROLES.OFICIAL_LOGISTICA],
     'compra.historial': [ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO, ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA],
-    'inventario.kardex': [ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO, ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA]
+    'inventario.kardex': [ROLES.ADMINISTRADOR_GENERAL, ROLES.ASESOR_FINANCIERO, ROLES.COORDINADOR_LOGISTICA, ROLES.OFICIAL_LOGISTICA],
+
+    // Cuenta propia (POST /seguridad/usuarios/api/v1/me/password/)
+    'cuenta.cambiarClave': ALL
 });
 
 export const DEFAULT_ROUTE_BY_ROLE = Object.freeze({
@@ -142,7 +149,8 @@ export const DEFAULT_ROUTE_BY_ROLE = Object.freeze({
     [ROLES.VENDEDOR]: '#/ventas',
     [ROLES.SOPORTE_TI]: '#/productos',
     [ROLES.OFICIAL_LOGISTICA]: '#/productos',
-    [ROLES.ASESOR_MARKETING]: '#/sin-acceso'
+    // Sin módulos funcionales en el backend: solo puede usar Configuración.
+    [ROLES.ASESOR_MARKETING]: '#/configuracion'
 });
 
 export const RBAC = {

@@ -12,6 +12,7 @@ export const SolicitudesComprasService = {
   crearCompraDesdeSolicitud: payload => ApiService.post(`${BASE}desde-solicitud/`, payload),
   crearCompraDirecta: payload => ApiService.post(BASE, payload),
   iniciarCompra: id => ApiService.post(`${BASE}${id}/iniciar/`, {}),
+  cancelarCompra: id => ApiService.post(`${BASE}${id}/cancelar/`, {}),
   aprobarCompra: id => ApiService.post(`${BASE}${id}/aprobar/`, {}),
   recibirCompra: id => ApiService.post(`${BASE}${id}/recibir/`, {}),
   getProductos: () => ApiService.get('/catalogos/producto/'),

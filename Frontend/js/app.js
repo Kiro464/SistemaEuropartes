@@ -78,10 +78,9 @@ function initGlobalLayoutEvents() {
     });
 
     document.getElementById('toggle-theme')?.addEventListener('click', () => {
-        const currentTheme = StateManager.getState().theme;
-        StateManager.setTheme(currentTheme === 'light' ? 'dark' : 'light');
-        updateThemeButton();
+        StateManager.setTheme(StateManager.resolveTheme() === 'light' ? 'dark' : 'light');
     });
+    window.addEventListener('europartes:theme-changed', updateThemeButton);
 
     document.getElementById('btn-logout')?.addEventListener('click', () => AuthService.logout());
 
@@ -143,6 +142,10 @@ function initUserMenu() {
     document.addEventListener('click', event => {
         if (!event.target.closest('.user-menu')) closeUserMenu();
     });
+
+    panel?.addEventListener('click', event => {
+        if (event.target.closest('a.user-menu-action')) closeUserMenu();
+    });
 }
 
 function closeUserMenu() {
@@ -196,8 +199,9 @@ function updatePageContext() {
 function updateThemeButton() {
     const icon = document.querySelector('#toggle-theme i');
     if (!icon) return;
-    const theme = StateManager.getState().theme;
+    const theme = StateManager.resolveTheme();
     icon.className = `bx ${theme === 'dark' ? 'bx-sun' : 'bx-moon'}`;
+    icon.parentElement?.setAttribute('aria-label', theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro');
 }
 
 function updateCurrencyButton() {

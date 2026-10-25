@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     UserCreateView, UsuariosAdministracionAPIView,
     UsuarioAdministracionDetalleAPIView, UsuarioRestablecerClaveAPIView,
-    UsuarioEstadoAPIView,
+    UsuarioEstadoAPIView, CambiarClavePropiaAPIView,
 )
 
 urlpatterns = [
@@ -11,4 +11,5 @@ urlpatterns = [
     path('api/v1/admin/<int:pk>/', UsuarioAdministracionDetalleAPIView.as_view(), name='admin-user-detail'),
     path('api/v1/admin/<int:pk>/estado/', UsuarioEstadoAPIView.as_view(), name='admin-user-status'),
     path('api/v1/admin/<int:pk>/password/', UsuarioRestablecerClaveAPIView.as_view(), name='admin-user-password'),
+    path('api/v1/me/password/', CambiarClavePropiaAPIView.as_view(), name='me-password'),
 ]

@@ -1,50 +1,80 @@
 /**
  * js/views/login/loginView.js
- * Genera el HTML estático de la pantalla de inicio de sesión.
+ * Genera el HTML de la pantalla de inicio de sesión.
  */
 
 export const LoginView = {
     render() {
+        const year = new Date().getFullYear();
         return `
-            <div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: var(--bg-color); width: 100vw;">
-                <div class="module-card" style="width: 100%; max-width: 420px; padding: 2.5rem 2rem; border-top: 4px solid var(--primary-color); margin: 20px;">
-                    
-                    <!-- Encabezado con Logo -->
-                    <div class="text-center mb-2">
-                        <i class='bx bx-wrench logo-icon' style="font-size: 3.5rem;"></i>
-                        <h2 class="logo-text" style="font-size: 1.8rem; margin-top: 10px; color: var(--text-primary);">EUROPARTES</h2>
-                        <p style="color: var(--text-secondary); margin-top: 5px;">Sistema de Gestión POS</p>
+            <div class="login-shell">
+                <section class="login-hero" aria-hidden="true">
+                    <div class="login-brand">
+                        <span class="brand-mark"><i class='bx bxs-car-mechanic'></i></span>
+                        Europartes
                     </div>
-
-                    <!-- Mensaje de Error Visual (Oculto por defecto) -->
-                    <div id="login-error-msg" class="hidden" style="background-color: rgba(220, 53, 69, 0.1); color: var(--danger-color); padding: 10px; border-radius: var(--border-radius); border-left: 4px solid var(--danger-color); margin-bottom: 1.5rem; text-align: center; font-size: 0.9rem; font-weight: 500;">
-                        Usuario o contraseña incorrectos.
+                    <div class="login-hero-copy">
+                        <h1>Repuestos, ventas e inventario <span>en un solo lugar.</span></h1>
+                        <p>Gestiona facturación, compras, despachos y el kardex de tu negocio con información actualizada en tiempo real.</p>
+                        <ul class="login-features">
+                            <li><i class='bx bx-receipt'></i> Facturación y control de despachos</li>
+                            <li><i class='bx bx-package'></i> Inventario y kardex trazable</li>
+                            <li><i class='bx bx-line-chart'></i> Indicadores para la toma de decisiones</li>
+                        </ul>
                     </div>
+                    <div class="login-hero-foot">© ${year} Europartes · Sistema de gestión</div>
+                </section>
 
-                    <!-- Formulario de Login -->
-                    <form id="login-form" class="euro-form">
-                        <div class="form-group">
-                            <label for="username">Usuario <span class="req">*</span></label>
-                            <div style="position: relative;">
-                                <i class='bx bx-user' style="position: absolute; left: 10px; top: 12px; color: var(--text-secondary); font-size: 1.2rem;"></i>
-                                <input type="text" id="username" name="username" class="form-control" placeholder="Ingrese su usuario" style="padding-left: 35px;" required autocomplete="username">
+                <section class="login-panel">
+                    <button type="button" id="login-theme-toggle" class="login-theme-toggle" aria-label="Cambiar tema" title="Cambiar tema">
+                        <i class='bx bx-moon'></i>
+                    </button>
+
+                    <div class="login-card">
+                        <div class="login-card-head">
+                            <div class="login-brand">
+                                <span class="brand-mark"><i class='bx bxs-car-mechanic'></i></span>
+                                Europartes
                             </div>
+                            <h2>Bienvenido de nuevo</h2>
+                            <p>Ingresa tus credenciales para continuar.</p>
                         </div>
 
-                        <div class="form-group" style="margin-top: 1.2rem;">
-                            <label for="password">Contraseña <span class="req">*</span></label>
-                            <div style="position: relative;">
-                                <i class='bx bx-lock-alt' style="position: absolute; left: 10px; top: 12px; color: var(--text-secondary); font-size: 1.2rem;"></i>
-                                <input type="password" id="password" name="password" class="form-control" placeholder="Ingrese su contraseña" style="padding-left: 35px;" required autocomplete="current-password">
-                            </div>
+                        <!-- Mensaje de error (oculto por defecto) -->
+                        <div id="login-error-msg" class="login-alert hidden" role="alert">
+                            <i class='bx bx-error-circle' aria-hidden="true"></i>
+                            <span id="login-error-text">Usuario o contraseña incorrectos.</span>
                         </div>
 
-                        <button type="submit" id="btn-login-submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem; padding: 0.8rem; font-size: 1.1rem;">
-                            <i class='bx bx-log-in'></i> Iniciar Sesión
-                        </button>
-                    </form>
-                    
-                </div>
+                        <form id="login-form" class="euro-form" novalidate>
+                            <div class="form-group">
+                                <label for="username">Usuario</label>
+                                <div class="input-icon">
+                                    <i class='bx bx-user' aria-hidden="true"></i>
+                                    <input type="text" id="username" name="username" class="form-control" placeholder="Tu nombre de usuario" required autocomplete="username" autocapitalize="none" spellcheck="false">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="password">Contraseña</label>
+                                <div class="input-icon input-with-action">
+                                    <i class='bx bx-lock-alt' aria-hidden="true"></i>
+                                    <input type="password" id="password" name="password" class="form-control" placeholder="Tu contraseña" required autocomplete="current-password">
+                                    <button type="button" id="login-toggle-password" class="input-action" aria-label="Mostrar contraseña" title="Mostrar contraseña">
+                                        <i class='bx bx-show' aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                <p id="login-caps" class="login-caps" aria-live="polite"><i class='bx bx-up-arrow-alt' aria-hidden="true"></i> Bloq Mayús está activado</p>
+                            </div>
+
+                            <button type="submit" id="btn-login-submit" class="btn btn-primary login-submit">
+                                <i class='bx bx-log-in'></i> Iniciar sesión
+                            </button>
+                        </form>
+
+                        <p class="login-help">¿Olvidaste tu contraseña? Solicita el restablecimiento a Soporte TI.</p>
+                    </div>
+                </section>
             </div>
         `;
     }

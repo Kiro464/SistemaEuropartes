@@ -9,6 +9,43 @@ import { RBAC } from './rbac.js';
 import { CONFIG } from './config.js';
 import { getErrorMessage } from '../utils/errorMessage.js';
 
+const prefersReducedMotion = () =>
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Barra de progreso superior durante la carga de un módulo. */
+const RouteProgress = {
+    start() {
+        const bar = document.getElementById('route-progress');
+        if (!bar) return;
+        bar.classList.remove('is-done');
+        void bar.offsetWidth;
+        bar.classList.add('is-loading');
+    },
+    done() {
+        const bar = document.getElementById('route-progress');
+        if (!bar) return;
+        bar.classList.remove('is-loading');
+        bar.classList.add('is-done');
+    }
+};
+
+/** Desvanece brevemente la vista saliente para que el cambio no sea abrupto. */
+async function leaveCurrentView(mainContent) {
+    if (!mainContent?.children.length || prefersReducedMotion()) return;
+    mainContent.classList.remove('view-enter');
+    mainContent.classList.add('view-leave');
+    await new Promise(resolve => setTimeout(resolve, 130));
+    mainContent.classList.remove('view-leave');
+}
+
+function enterView(mainContent) {
+    if (!mainContent || prefersReducedMotion()) return;
+    mainContent.classList.remove('view-enter');
+    void mainContent.offsetWidth;
+    mainContent.classList.add('view-enter');
+    mainContent.scrollTop = 0;
+}
+
 const routes = {
 
     '#/login': () =>
@@ -106,6 +143,7 @@ const routes = {
 };
 
 export const Router = {
+    _navigationSequence: 0,
 
     async handleRoute() {
 
@@ -159,8 +197,13 @@ export const Router = {
 
         } else {
 
+            const wasHidden = appLayout?.classList.contains('hidden');
             loginRoot?.classList.add('hidden');
             appLayout?.classList.remove('hidden');
+            if (wasHidden && !prefersReducedMotion()) {
+                appLayout?.classList.add('app-enter');
+                setTimeout(() => appLayout?.classList.remove('app-enter'), 600);
+            }
         }
 
         // -----------------------------------------------
@@ -181,14 +224,24 @@ export const Router = {
 
         if (routeHandler) {
 
-            if (mainContent) {
-                mainContent.innerHTML =
-                    '<div class="loader-spinner">Cargando módulo...</div>';
+            const isAppRoute = currentHash !== '#/login';
+            const sequence = ++this._navigationSequence;
+
+            if (isAppRoute) {
+                RouteProgress.start();
+                await leaveCurrentView(mainContent);
+                // Otra navegación empezó mientras salía la vista anterior.
+                if (sequence !== this._navigationSequence) return;
+                if (mainContent) {
+                    mainContent.innerHTML =
+                        '<div class="loader-spinner">Cargando módulo...</div>';
+                }
             }
 
             try {
 
                 await routeHandler();
+                if (isAppRoute && sequence === this._navigationSequence) enterView(mainContent);
 
             } catch (error) {
 
@@ -206,6 +259,8 @@ export const Router = {
                         </div>
                     `;
                 }
+            } finally {
+                if (isAppRoute) RouteProgress.done();
             }
 
         } else {

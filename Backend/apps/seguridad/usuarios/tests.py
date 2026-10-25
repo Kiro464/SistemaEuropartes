@@ -153,3 +153,54 @@ class UsuariosAdministracionTests(TestCase):
         self.support.refresh_from_db()
         self.assertTrue(self.support.is_active)
         self.assertEqual(list(self.support.groups.filter(name__in=ROLES_EUROPARTES).values_list("name", flat=True)), ["Soporte TI"])
+
+
+class CambiarClavePropiaTests(TestCase):
+    url = "/seguridad/usuarios/api/v1/me/password/"
+
+    def setUp(self):
+        group, _ = Group.objects.get_or_create(name="Oficial de Logística")
+        self.user = User.objects.create_user(username="oficial_clave_test", password="Actual!Clave_5521")
+        self.user.groups.add(group)
+        self.client = APIClient()
+
+    def test_requiere_autenticacion(self):
+        response = self.client.post(self.url, {}, format="json")
+        self.assertEqual(response.status_code, 401)
+
+    def test_cambia_su_contrasena_y_recibe_tokens_nuevos(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.post(self.url, {
+            "password_actual": "Actual!Clave_5521",
+            "password": "Nueva!Clave_9083", "password2": "Nueva!Clave_9083",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("Nueva!Clave_9083"))
+        token = AccessToken(response.data["access"])
+        self.assertEqual(token["grupo"], "Oficial de Logística")
+        self.assertIn("refresh", response.data)
+
+    def test_rechaza_contrasena_actual_incorrecta(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.post(self.url, {
+            "password_actual": "Incorrecta!111",
+            "password": "Nueva!Clave_9083", "password2": "Nueva!Clave_9083",
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password_actual", response.data)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("Actual!Clave_5521"))
+
+    def test_rechaza_confirmacion_distinta_y_clave_debil(self):
+        self.client.force_authenticate(self.user)
+        mismatch = self.client.post(self.url, {
+            "password_actual": "Actual!Clave_5521",
+            "password": "Nueva!Clave_9083", "password2": "Otra!Clave_9083",
+        }, format="json")
+        self.assertEqual(mismatch.status_code, 400)
+        weak = self.client.post(self.url, {
+            "password_actual": "Actual!Clave_5521", "password": "123", "password2": "123",
+        }, format="json")
+        self.assertEqual(weak.status_code, 400)
+        self.assertIn("password", weak.data)

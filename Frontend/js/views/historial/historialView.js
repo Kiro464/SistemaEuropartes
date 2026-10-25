@@ -1,5 +1,5 @@
 export const HistorialView = {
-    render(tipo = 'ventas') {
+    render(tipo = 'ventas', { soloPropias = false } = {}) {
         const config = {
             ventas: { title: 'Historial de ventas', description: 'Facturas y operaciones de venta registradas', icon: 'bx-receipt' },
             compras: { title: 'Historial de compras', description: 'Compras generadas, su estado y su recepción', icon: 'bx-cart-download' },
@@ -17,13 +17,13 @@ export const HistorialView = {
             <input id="historial-referencia-id" type="number" min="1" class="form-control" placeholder="ID referencia" aria-label="ID de referencia">` : '';
         const clienteEmpleado = tipo === 'ventas' ? `
             <input id="historial-cliente-id" type="number" min="1" class="form-control" placeholder="ID cliente" aria-label="ID cliente">
-            <input id="historial-empleado-id" type="number" min="1" class="form-control" placeholder="ID empleado" aria-label="ID empleado">` : '';
+            ${soloPropias ? '' : '<input id="historial-empleado-id" type="number" min="1" class="form-control" placeholder="ID empleado" aria-label="ID empleado">'}` : '';
         const proveedor = tipo === 'compras' ? `
             <input id="historial-proveedor-id" type="number" min="1" class="form-control" placeholder="ID proveedor" aria-label="ID proveedor">` : '';
         return `
             <div class="dashboard-container historial-page" data-historial-tipo="${tipo}">
                 <div class="module-header">
-                    <div><h2><i class='bx ${config.icon}' aria-hidden="true"></i> ${config.title}</h2><p style="color:var(--text-secondary)">${config.description}</p></div>
+                    <div><h2><i class='bx ${config.icon}' aria-hidden="true"></i> ${config.title}</h2><p style="color:var(--text-secondary)">${config.description}${soloPropias ? ' · Solo se muestran tus ventas.' : ''}</p></div>
                     <button id="btn-exportar-excel" class="btn btn-success" type="button"><i class="bx bx-file" aria-hidden="true"></i> Exportar a Excel</button>
                 </div>
                 <div class="module-card">

@@ -17,8 +17,8 @@ export const SolicitudesComprasController = {
     const results = await Promise.allSettled([
       RBAC.can(this.role, 'solicitudCompra.ver') ? Service.getSolicitudes() : Promise.resolve([]),
       RBAC.can(this.role, 'compra.ver') ? Service.getCompras() : Promise.resolve([]),
-      (this.role === 'Vendedor' || this.role === 'Coordinador de Logística') ? Service.getProductos() : Promise.resolve([]),
-      this.role === 'Coordinador de Logística' ? Service.getProveedores() : Promise.resolve([])
+      RBAC.canAny(this.role, ['solicitudCompra.crear', 'compra.gestionar']) ? Service.getProductos() : Promise.resolve([]),
+      RBAC.can(this.role, 'compra.gestionar') ? Service.getProveedores() : Promise.resolve([])
     ]);
     const [sol, comp, prod, prov] = results;
     this.data.solicitudes = sol.status === 'fulfilled' ? this.unwrap(sol.value) : [];
@@ -141,6 +141,7 @@ export const SolicitudesComprasController = {
       else if (action === 'edit-request') { const s = this.data.solicitudes.find(x=>Number(x.id)===id); if (!s) return; const cantidad = Number(prompt('Nueva cantidad para el primer producto:', s.detalles?.[0]?.cantidad ?? 1)); if (!Number.isInteger(cantidad)||cantidad<1) return alert('Cantidad inválida.'); await Service.actualizarSolicitud(id, { observaciones: s.observaciones || '', detalles: s.detalles.map((d,i)=>({...d, producto_id: d.producto_id || d.producto, cantidad: i===0 ? cantidad : d.cantidad})) }); }
       else if (action === 'create-purchase') { this.openPurchaseModal(id); return; }
       else if (action === 'start-purchase') await Service.iniciarCompra(id);
+      else if (action === 'cancel-purchase') { if (!confirm('¿Cancelar esta orden de compra? Esta acción no se puede deshacer.')) return; await Service.cancelarCompra(id); }
       else if (action === 'approve-purchase') { if (!confirm('¿Aprobar esta compra?')) return; await Service.aprobarCompra(id); }
       else if (action === 'receive-purchase') { if (!confirm('Confirmá que la mercancía fue recibida físicamente. Esta acción actualizará el stock y el Kardex.')) return; await Service.recibirCompra(id); }
       await this.load();

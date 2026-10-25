@@ -7,7 +7,7 @@ export const ClientesView = {
                         <h2><i class='bx bx-group'></i> Gestión de Clientes</h2>
                         <p style="color: var(--text-secondary);">Directorio de clientes</p>
                     </div>
-                    <button id="btn-nuevo-cliente" class="btn btn-primary">
+                    <button id="btn-nuevo-cliente" class="btn btn-primary" data-rbac-action="cliente.crear">
                         <i class='bx bx-plus'></i> Nuevo Cliente
                     </button>
                 </div>

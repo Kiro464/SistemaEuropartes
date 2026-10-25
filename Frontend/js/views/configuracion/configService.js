@@ -1,4 +1,5 @@
 import { ApiService } from '../../core/api.js';
+import { AuthService } from '../../core/auth.js';
 
 export const ConfigService = {
     /**
@@ -7,6 +8,20 @@ export const ConfigService = {
      */
     async getConfiguracionAPI() {
         return await ApiService.get('/movimientos/venta/configuracion/');
+    },
+
+    /**
+     * Cambia la contraseña de la cuenta autenticada.
+     * El backend devuelve un par de tokens nuevo para mantener la sesión activa.
+     */
+    async cambiarClave({ password_actual, password, password2 }) {
+        const response = await ApiService.post('/seguridad/usuarios/api/v1/me/password/', {
+            password_actual,
+            password,
+            password2
+        });
+        if (response?.access) AuthService.setTokens(response.access, response.refresh);
+        return response;
     },
 
     /**

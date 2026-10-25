@@ -58,10 +58,29 @@ export const StateManager = {
         );
     },
 
+    /** Preferencia guardada: 'light' | 'dark' | 'system'. El DOM siempre recibe el tema resuelto. */
+    resolveTheme(theme = this.state.theme) {
+        if (theme === 'system') {
+            return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        return theme === 'dark' ? 'dark' : 'light';
+    },
+
+    applyTheme({ animate = false } = {}) {
+        const root = document.documentElement;
+        if (animate) {
+            root.classList.add('theme-transition');
+            clearTimeout(this._themeTimer);
+            this._themeTimer = setTimeout(() => root.classList.remove('theme-transition'), 400);
+        }
+        root.setAttribute('data-theme', this.resolveTheme());
+    },
+
     setTheme(theme) {
-        this.state.theme = theme;
-        localStorage.setItem('europartes_theme', theme);
-        document.documentElement.setAttribute('data-theme', theme);
+        this.state.theme = ['light', 'dark', 'system'].includes(theme) ? theme : 'light';
+        localStorage.setItem('europartes_theme', this.state.theme);
+        this.applyTheme({ animate: true });
+        window.dispatchEvent(new CustomEvent('europartes:theme-changed', { detail: { theme: this.state.theme } }));
         this.notify();
     },
 
@@ -124,6 +143,9 @@ export const StateManager = {
     },
 
     init() {
-        document.documentElement.setAttribute('data-theme', this.state.theme);
+        this.applyTheme();
+        window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+            if (this.state.theme === 'system') this.applyTheme({ animate: true });
+        });
     }
 };

@@ -3,6 +3,8 @@ import { HistorialService } from './historialService.js';
 import { UI } from '../../components/ui.js';
 import { StateManager } from '../../core/state.js';
 import { getErrorMessage } from '../../utils/errorMessage.js';
+import { AuthService } from '../../core/auth.js';
+import { ROLES } from '../../core/rbac.js';
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
 const asArray = data => Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
@@ -29,7 +31,8 @@ export const HistorialController = {
         this.tipo = ({ '#/historial/compras':'compras', '#/inventario/kardex':'kardex' })[window.location.hash] || 'ventas';
         const root = document.getElementById('main-content');
         if (!root) return;
-        root.innerHTML = HistorialView.render(this.tipo);
+        // El backend limita al Vendedor a sus propias ventas; el filtro por empleado no aplica.
+        root.innerHTML = HistorialView.render(this.tipo, { soloPropias: this.tipo === 'ventas' && AuthService.getRole() === ROLES.VENDEDOR });
         this.bindEvents();
         await this.load();
         if (this._onMonedaCambiada) window.removeEventListener('monedaCambiada', this._onMonedaCambiada);
