@@ -17,7 +17,7 @@ export const DashboardView = {
                             <option value="dia">Hoy</option>
                             <option value="historico">Histórico completo</option>
                         </select>
-                        <button id="dash-btn-recargar" class="btn btn-primary dashboard-refresh" title="Actualizar indicadores">
+                        <button id="dash-btn-recargar" class="btn btn-primary dashboard-refresh" data-rbac-action="dashboard.etl" title="Actualizar indicadores">
                             <i class='bx bx-refresh'></i><span>Actualizar</span>
                         </button>
                     </div>

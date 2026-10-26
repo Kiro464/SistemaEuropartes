@@ -1,6 +1,7 @@
 import { DespachosService } from './despachosService.js';
 import { DespachosView } from './despachosView.js';
 import { UI } from '../../components/ui.js';
+import { RBAC } from '../../core/rbac.js';
 import { getErrorMessage } from '../../utils/errorMessage.js';
 
 export const DespachosController = {
@@ -17,7 +18,9 @@ export const DespachosController = {
     },
     async load() {
         const data = await DespachosService.getPendientes();
-        DespachosView.render(document.getElementById('main-content'), data);
+        const main = document.getElementById('main-content');
+        DespachosView.render(main, data);
+        RBAC.applyActionVisibility(main);
     },
     bindEvents(root) {
         root.querySelectorAll('.btn-dispatch-all').forEach(button => button.addEventListener('click', () => this.process(button.dataset.orderId, null)));

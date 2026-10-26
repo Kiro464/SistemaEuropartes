@@ -75,7 +75,9 @@ class ProductoApiView(APIView):
         serializer = ProductoSerializer(data=request.data)
 
         if serializer.is_valid():
-            serializer.save()
+            # El stock es de solo lectura en la API: todo producto nuevo nace
+            # sin existencias y las entradas se registran mediante compras.
+            serializer.save(stock_actual=0, stock_reservado=0)
 
             return Response(
                 status=status.HTTP_201_CREATED,

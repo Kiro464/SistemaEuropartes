@@ -78,7 +78,7 @@ export const VentasView = {
                             </div>
                         </div>
 
-                        <button id="btn-confirmar-venta" class="btn btn-primary" style="width: 100%; margin-top: 15px; padding: 12px; font-size: 1.1rem;" disabled>
+                        <button id="btn-confirmar-venta" class="btn btn-primary" data-rbac-action="venta.facturar" style="width: 100%; margin-top: 15px; padding: 12px; font-size: 1.1rem;" disabled>
                             <i class='bx bx-check-shield'></i> Generar Factura
                         </button>
                     </div>

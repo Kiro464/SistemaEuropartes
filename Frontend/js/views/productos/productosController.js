@@ -358,15 +358,19 @@ export const ProductosController = {
     },
 
     setCatalogControls(canEdit) {
-        const canManageCatalogs = RBAC.canAny(this.getRole(), ['marca.gestionar', 'proveedor.gestionar']);
-        const isReadOnly = !canEdit;
-        ['btn-add-proveedor', 'btn-edit-proveedor', 'btn-add-marca', 'btn-edit-marca'].forEach(id => {
+        // Cada botón se muestra según el permiso del endpoint que invoca.
+        const role = this.getRole();
+        const buttons = {
+            'btn-add-marca': !canEdit ? null : 'marca.crear',
+            'btn-edit-marca': !canEdit ? null : 'marca.editar',
+            'btn-view-marca': 'marca.ver',
+            'btn-add-proveedor': !canEdit ? null : 'proveedor.crear',
+            'btn-edit-proveedor': !canEdit ? null : 'proveedor.editar',
+            'btn-view-proveedor': 'proveedor.ver'
+        };
+        Object.entries(buttons).forEach(([id, action]) => {
             const button = document.getElementById(id);
-            if (button) button.classList.toggle('hidden', isReadOnly || !canManageCatalogs);
-        });
-        ['btn-view-proveedor', 'btn-view-marca'].forEach(id => {
-            const button = document.getElementById(id);
-            if (button) button.classList.toggle('hidden', !canManageCatalogs);
+            if (button) button.classList.toggle('hidden', !action || !RBAC.can(role, action));
         });
     },
 

@@ -204,6 +204,35 @@ class RBACCatalogosAPITestCase(APITestCase):
             status.HTTP_403_FORBIDDEN,
         )
 
+    def test_producto_alta_valida_inicia_con_stock_cero(self):
+        """El stock es de solo lectura: un alta válida debe guardarse con stock 0."""
+        payload = {
+            "nombre": "Filtro de aceite prueba",
+            "marca": self.marca.id,
+            "descripcion": "Producto creado desde el catálogo",
+            "precio_unitario": "250.00",
+            "proveedor": self.proveedor.id,
+            "estado": True,
+            "stock_actual": 99,
+        }
+
+        for rol in ["Coordinador de Logística", "Soporte TI"]:
+            self.autenticar(rol)
+
+            response = self.client.post(
+                self.url_list("producto"),
+                payload,
+                format="json",
+            )
+
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_201_CREATED,
+                msg=f"{rol}: {response.data}",
+            )
+            self.assertEqual(response.data["stock_actual"], 0)
+            self.assertEqual(response.data["stock_reservado"], 0)
+
     def test_producto_coordinador_puede_crear(self):
         self.autenticar("Coordinador de Logística")
 

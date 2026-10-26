@@ -241,6 +241,8 @@ export const Router = {
             try {
 
                 await routeHandler();
+                // Ningún botón queda visible si el rol no tiene acceso a su endpoint.
+                if (isAppRoute) RBAC.applyActionVisibility(mainContent);
                 if (isAppRoute && sequence === this._navigationSequence) enterView(mainContent);
 
             } catch (error) {
