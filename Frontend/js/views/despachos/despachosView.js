@@ -4,10 +4,10 @@ export const DespachosView = {
     render(container, ordenes = []) {
         if (!container) return;
         if (!ordenes.length) {
-            container.innerHTML = `<div class="module-card dispatch-empty-state"><i class='bx bx-package'></i><h3>No hay despachos pendientes</h3><p>Las ventas facturadas aparecerán aquí hasta que el Oficial de Logística complete su despacho.</p></div>`;
+            container.innerHTML = `<div class="module-card dispatch-empty-state"><i class='bx bx-package'></i><h1>No hay despachos pendientes</h1><p>Las ventas facturadas aparecerán aquí hasta que el Oficial de Logística complete su despacho.</p></div>`;
             return;
         }
-        container.innerHTML = `<div class="dispatch-toolbar"><div><span class="modal-kicker">Logística</span><h2 class="dispatch-title">Despachos pendientes</h2><p class="dispatch-subtitle">Valide las unidades entregadas. Los despachos parciales mantienen pendiente la cantidad restante.</p></div><span class="status-badge status-warning">${ordenes.length} pendiente${ordenes.length === 1 ? '' : 's'}</span></div><div class="dispatch-list">${ordenes.map(o => this.renderOrder(o)).join('')}</div>`;
+        container.innerHTML = `<div class="dispatch-toolbar"><div><span class="modal-kicker">Logística</span><h1 class="dispatch-title">Despachos pendientes</h1><p class="dispatch-subtitle">Valide las unidades entregadas. Los despachos parciales mantienen pendiente la cantidad restante.</p></div><span class="status-badge status-warning">${ordenes.length} pendiente${ordenes.length === 1 ? '' : 's'}</span></div><div class="dispatch-list">${ordenes.map(o => this.renderOrder(o)).join('')}</div>`;
     },
     renderOrder(order) {
         const cliente = escapeHtml(order.factura?.cliente || 'Cliente no disponible');

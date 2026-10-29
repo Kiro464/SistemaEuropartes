@@ -4,7 +4,7 @@ export const ClientesView = {
             <div class="dashboard-container">
                 <div class="module-header">
                     <div>
-                        <h2><i class='bx bx-group'></i> Gestión de Clientes</h2>
+                        <h1><i class='bx bx-group'></i> Gestión de Clientes</h1>
                         <p style="color: var(--text-secondary);">Directorio de clientes</p>
                     </div>
                     <button id="btn-nuevo-cliente" class="btn btn-primary" data-rbac-action="cliente.crear">

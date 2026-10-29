@@ -10,7 +10,7 @@ export const VentasView = {
             <div class="dashboard-container">
                 <div class="module-header">
                     <div>
-                        <h2><i class='bx bx-cart'></i> Punto de Venta</h2>
+                        <h1><i class='bx bx-cart'></i> Punto de Venta</h1>
                         <p style="color: var(--text-secondary);">Facturación y cobro</p>
                     </div>
                 </div>

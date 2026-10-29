@@ -14,12 +14,34 @@ export const LoginView = {
                         Europartes
                     </div>
                     <div class="login-hero-copy">
-                        <h1>Repuestos, ventas e inventario <span>en un solo lugar.</span></h1>
-                        <p>Gestiona facturación, compras, despachos y el kardex de tu negocio con información actualizada en tiempo real.</p>
+                        <h2>Del almacén al mostrador.</h2>
+                        <p>Catálogo, existencias, compras y despachos conectados en un solo flujo de trabajo.</p>
+                        <figure class="login-part-figure" aria-hidden="true">
+                            <svg viewBox="0 0 440 220" role="presentation" focusable="false">
+                                <g class="part-outline">
+                                    <circle cx="138" cy="110" r="77"></circle>
+                                    <circle cx="138" cy="110" r="55"></circle>
+                                    <circle cx="138" cy="110" r="27"></circle>
+                                    <circle cx="138" cy="64" r="5"></circle>
+                                    <circle cx="170.5" cy="77.5" r="5"></circle>
+                                    <circle cx="184" cy="110" r="5"></circle>
+                                    <circle cx="170.5" cy="142.5" r="5"></circle>
+                                    <circle cx="138" cy="156" r="5"></circle>
+                                    <circle cx="105.5" cy="142.5" r="5"></circle>
+                                    <circle cx="92" cy="110" r="5"></circle>
+                                    <circle cx="105.5" cy="77.5" r="5"></circle>
+                                    <path d="M138 34v21M214 110h-21M138 186v-21M62 110h21M84 56l16 16M192 56l-16 16M192 164l-16-16M84 164l16-16"></path>
+                                    <path d="M265 77h99l21 16v34l-21 16h-99l-17-18V95z"></path>
+                                    <path d="M265 77v66M364 77v66M282 87v46M347 87v46"></path>
+                                    <path class="part-accent" d="M231 110h25M331 59v18M331 143v18M229 84l15 13M229 136l15-13"></path>
+                                    <path class="part-accent" d="M138 83v54M111 110h54"></path>
+                                </g>
+                            </svg>
+                        </figure>
                         <ul class="login-features">
-                            <li><i class='bx bx-receipt'></i> Facturación y control de despachos</li>
-                            <li><i class='bx bx-package'></i> Inventario y kardex trazable</li>
-                            <li><i class='bx bx-line-chart'></i> Indicadores para la toma de decisiones</li>
+                            <li><i class='bx bx-package'></i> Existencias y movimientos de inventario</li>
+                            <li><i class='bx bx-cart'></i> Compras y abastecimiento</li>
+                            <li><i class='bx bx-receipt'></i> Ventas y control de despachos</li>
                         </ul>
                     </div>
                     <div class="login-hero-foot">© ${year} Europartes · Sistema de gestión</div>
@@ -36,8 +58,8 @@ export const LoginView = {
                                 <span class="brand-mark"><i class='bx bxs-car-mechanic'></i></span>
                                 Europartes
                             </div>
-                            <h2>Bienvenido de nuevo</h2>
-                            <p>Ingresa tus credenciales para continuar.</p>
+                            <h1>Iniciar sesión</h1>
+                            <p>Accede con tus credenciales de Europartes.</p>
                         </div>
 
                         <!-- Mensaje de error (oculto por defecto) -->

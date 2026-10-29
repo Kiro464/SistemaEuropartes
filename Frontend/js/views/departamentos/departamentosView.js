@@ -1,7 +1,7 @@
 export const DepartamentosView = {
     render() { return `
         <section class="dashboard-container catalog-page" aria-labelledby="departamentos-title">
-            <header class="module-header"><div><h2 id="departamentos-title"><i class="bx bx-buildings" aria-hidden="true"></i> Departamentos</h2><p class="catalog-description">Consulta la estructura de departamentos del sistema.</p></div>
+            <header class="module-header"><div><h1 id="departamentos-title"><i class="bx bx-buildings" aria-hidden="true"></i> Departamentos</h1><p class="catalog-description">Consulta la estructura de departamentos del sistema.</p></div>
             <button id="btn-nuevo-depto" class="btn btn-primary" data-rbac-action="departamento.crear"><i class="bx bx-plus" aria-hidden="true"></i> Nuevo departamento</button></header>
             <div class="module-card"><div id="deptos-table-container" class="table-responsive" aria-live="polite"><div class="catalog-state">Cargando departamentos…</div></div></div>
         </section>${this.renderModal()}`; },

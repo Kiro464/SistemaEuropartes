@@ -5,7 +5,7 @@ export const ProductosView = {
                 <div class="module-header product-header">
                     <div>
                         <div class="eyebrow"><i class='bx bx-package'></i> Catálogo e inventario</div>
-                        <h2>Productos</h2>
+                        <h1>Productos</h1>
                         <p>Consulta de existencias y gestión del catálogo según el rol autorizado.</p>
                     </div>
                     <button id="btn-nuevo-producto" class="btn btn-primary" data-rbac-action="producto.crear">

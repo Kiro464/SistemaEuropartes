@@ -1,7 +1,7 @@
 export const MarcasView = {
     render() { return `
         <section class="dashboard-container catalog-page" aria-labelledby="marcas-title">
-            <header class="module-header"><div><h2 id="marcas-title"><i class="bx bx-tag" aria-hidden="true"></i> Marcas</h2><p class="catalog-description">Administra las marcas disponibles para el catálogo de productos.</p></div>
+            <header class="module-header"><div><h1 id="marcas-title"><i class="bx bx-tag" aria-hidden="true"></i> Marcas</h1><p class="catalog-description">Administra las marcas disponibles para el catálogo de productos.</p></div>
             <button id="btn-nueva-marca" class="btn btn-primary" data-rbac-action="marca.crear"><i class="bx bx-plus" aria-hidden="true"></i> Nueva marca</button></header>
             <div class="module-card"><div id="marcas-table-container" class="table-responsive" aria-live="polite"><div class="catalog-state">Cargando marcas…</div></div></div>
         </section>${this.renderModal()}`; },

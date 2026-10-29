@@ -21,7 +21,7 @@ export const ConfigView = {
                 <header class="module-header">
                     <div>
                         <span class="eyebrow">Sistema</span>
-                        <h2 id="config-title"><i class='bx bx-cog' aria-hidden="true"></i> Configuración</h2>
+                        <h1 id="config-title"><i class='bx bx-cog' aria-hidden="true"></i> Configuración</h1>
                         <p class="catalog-description">Preferencias de la interfaz, seguridad de tu cuenta e información comercial.</p>
                     </div>
                 </header>

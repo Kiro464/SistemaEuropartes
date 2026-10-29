@@ -1,7 +1,7 @@
 export const PaisesView = {
     render() { return `
         <section class="dashboard-container catalog-page" aria-labelledby="paises-title">
-            <header class="module-header"><div><h2 id="paises-title"><i class="bx bx-globe" aria-hidden="true"></i> Países</h2><p class="catalog-description">Gestiona los países asociados a proveedores.</p></div>
+            <header class="module-header"><div><h1 id="paises-title"><i class="bx bx-globe" aria-hidden="true"></i> Países</h1><p class="catalog-description">Gestiona los países asociados a proveedores.</p></div>
             <button id="btn-nuevo-pais" class="btn btn-primary" data-rbac-action="pais.crear"><i class="bx bx-plus" aria-hidden="true"></i> Nuevo país</button></header>
             <div class="module-card"><div id="paises-table-container" class="table-responsive" aria-live="polite"><div class="catalog-state">Cargando países…</div></div></div>
         </section>${this.renderModal()}`; },

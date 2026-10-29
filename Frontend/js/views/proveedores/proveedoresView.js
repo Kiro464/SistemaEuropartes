@@ -1,7 +1,7 @@
 export const ProveedoresView = {
     render() { return `
         <section class="dashboard-container catalog-page" aria-labelledby="proveedores-title">
-            <header class="module-header"><div><h2 id="proveedores-title"><i class="bx bx-truck" aria-hidden="true"></i> Proveedores</h2><p class="catalog-description">Administra proveedores y su país de operación.</p></div>
+            <header class="module-header"><div><h1 id="proveedores-title"><i class="bx bx-truck" aria-hidden="true"></i> Proveedores</h1><p class="catalog-description">Administra proveedores y su país de operación.</p></div>
             <button id="btn-nuevo-proveedor" class="btn btn-primary" data-rbac-action="proveedor.crear"><i class="bx bx-plus" aria-hidden="true"></i> Nuevo proveedor</button></header>
             <div class="module-card"><div id="proveedores-table-container" class="table-responsive" aria-live="polite"><div class="catalog-state">Cargando proveedores…</div></div></div>
         </section>${this.renderModal()}`; },

@@ -23,7 +23,7 @@ export const HistorialView = {
         return `
             <div class="dashboard-container historial-page" data-historial-tipo="${tipo}">
                 <div class="module-header">
-                    <div><h2><i class='bx ${config.icon}' aria-hidden="true"></i> ${config.title}</h2><p style="color:var(--text-secondary)">${config.description}${soloPropias ? ' · Solo se muestran tus ventas.' : ''}</p></div>
+                    <div><h1><i class='bx ${config.icon}' aria-hidden="true"></i> ${config.title}</h1><p style="color:var(--text-secondary)">${config.description}${soloPropias ? ' · Solo se muestran tus ventas.' : ''}</p></div>
                     <button id="btn-exportar-excel" class="btn btn-success" type="button" data-rbac-action="${{ ventas: 'venta.exportar', compras: 'compra.historial', kardex: 'inventario.kardex' }[tipo]}"><i class="bx bx-file" aria-hidden="true"></i> Exportar a Excel</button>
                 </div>
                 <div class="module-card">

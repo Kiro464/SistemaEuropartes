@@ -3,7 +3,7 @@ export const EmpleadosView = {
         return `
             <section class="dashboard-container catalog-page" aria-labelledby="empleados-title">
                 <header class="module-header">
-                    <div><h2 id="empleados-title"><i class="bx bx-id-card" aria-hidden="true"></i> Gestión de Empleados</h2><p class="catalog-description">Directorio del personal y su departamento.</p></div>
+                    <div><h1 id="empleados-title"><i class="bx bx-id-card" aria-hidden="true"></i> Gestión de Empleados</h1><p class="catalog-description">Directorio del personal y su departamento.</p></div>
                     ${canManage ? '<button id="btn-nuevo-empleado" class="btn btn-primary"><i class="bx bx-plus" aria-hidden="true"></i> Nuevo empleado</button>' : ''}
                 </header>
                 <div class="module-card">
