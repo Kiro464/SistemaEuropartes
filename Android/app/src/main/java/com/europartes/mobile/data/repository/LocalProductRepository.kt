@@ -88,28 +88,25 @@ class LocalProductRepository(private val dao: ProductDao) {
         }
     }
 
-    suspend fun cacheRemote(products: List<ProductDto>) = withContext(Dispatchers.IO) {
-        val cached = products.map { product ->
-            ProductEntity(
-                remoteId = product.id,
-                nombre = product.nombre,
-                marca = product.marca,
-                marcaNombre = product.marcaNombre,
-                descripcion = product.descripcion,
-                precioUnitario = product.precioUnitario,
-                stockActual = product.stockActual,
-                stockReservado = product.stockReservado,
-                stockDisponible = product.stockDisponible,
-                proveedor = product.proveedor,
-                proveedorNombre = product.proveedorNombre,
-                fechaRegistro = product.fechaRegistro,
-                estado = product.estado,
-                syncState = ProductEntity.REMOTE_CACHED,
-                updatedAtEpochMs = System.currentTimeMillis(),
-            )
-        }
-        dao.insertRemoteCache(cached)
+    suspend fun cacheConfirmedRemote(product: ProductDto) = withContext(Dispatchers.IO) {
+        dao.insertRemoteCache(listOf(product.toEntity()))
     }
+
+    suspend fun removeRemoteCache(remoteId: Int) = withContext(Dispatchers.IO) {
+        dao.deleteRemoteCache(remoteId)
+    }
+
+    suspend fun cacheRemote(products: List<ProductDto>) = withContext(Dispatchers.IO) {
+        dao.replaceRemoteCache(products.map { it.toEntity() })
+    }
+
+    private fun ProductDto.toEntity() = ProductEntity(
+        remoteId = id, nombre = nombre, marca = marca, marcaNombre = marcaNombre,
+        descripcion = descripcion, precioUnitario = precioUnitario, stockActual = stockActual,
+        stockReservado = stockReservado, stockDisponible = stockDisponible, proveedor = proveedor,
+        proveedorNombre = proveedorNombre, fechaRegistro = fechaRegistro, estado = estado,
+        syncState = ProductEntity.REMOTE_CACHED, updatedAtEpochMs = System.currentTimeMillis(),
+    )
 
     private fun String?.cleanOrNull(): String? = this?.trim()?.ifBlank { null }
 }

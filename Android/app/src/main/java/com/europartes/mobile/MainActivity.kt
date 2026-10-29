@@ -20,7 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -56,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.europartes.mobile.data.local.ProductEntity
 import com.europartes.mobile.data.remote.AuthenticatedUser
 import com.europartes.mobile.data.remote.ProductDto
+import com.europartes.mobile.data.remote.CatalogOptionDto
 import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.ui.components.EuropartesBrand
 import com.europartes.mobile.ui.components.EuropartesMetricPill
@@ -114,7 +119,16 @@ class MainActivity : ComponentActivity() {
                             isLoading = productsState.isLoading,
                             errorMessage = productsState.errorMessage,
                             hasLoaded = productsState.hasLoaded,
-                            onRefresh = productsViewModel::loadProducts,
+                            onRefresh = { includeInactive -> productsViewModel.loadProducts(includeInactive) },
+                            productWorking = productsState.isWorking,
+                            productMessage = productsState.message,
+                            productMessageIsError = productsState.messageIsError,
+                            brands = productsState.brands,
+                            suppliers = productsState.suppliers,
+                            onLoadCatalogs = productsViewModel::loadCatalogs,
+                            onSaveProduct = productsViewModel::save,
+                            onChangeProductState = productsViewModel::changeActive,
+                            onClearProductMessage = productsViewModel::clearMessage,
                             localProducts = localProducts,
                             localWorking = localProductsState.isWorking,
                             localMessage = localProductsState.message,
@@ -203,7 +217,16 @@ private fun AuthenticatedShell(
     isLoading: Boolean,
     errorMessage: String?,
     hasLoaded: Boolean,
-    onRefresh: () -> Unit,
+    onRefresh: (Boolean) -> Unit,
+    productWorking: Boolean,
+    productMessage: String?,
+    productMessageIsError: Boolean,
+    brands: List<CatalogOptionDto>,
+    suppliers: List<CatalogOptionDto>,
+    onLoadCatalogs: () -> Unit,
+    onSaveProduct: (Int?, String, String, Int?, Int?, String) -> Unit,
+    onChangeProductState: (ProductDto, Boolean) -> Unit,
+    onClearProductMessage: () -> Unit,
     localProducts: List<ProductEntity>,
     localWorking: Boolean,
     localMessage: String?,
@@ -297,7 +320,18 @@ private fun AuthenticatedShell(
                             isLoading = isLoading,
                             errorMessage = errorMessage,
                             hasLoaded = hasLoaded,
-                            onRefresh = onRefresh,
+                            onRefresh = { includeInactive -> onRefresh(includeInactive) },
+                            canManage = user.grupo in EuropartesRoles.canManageProductsInBackend,
+                            isCoordinator = user.grupo == EuropartesRoles.COORDINADOR_LOGISTICA,
+                            isWorking = productWorking,
+                            message = productMessage,
+                            messageIsError = productMessageIsError,
+                            brands = brands,
+                            suppliers = suppliers,
+                            onLoadCatalogs = onLoadCatalogs,
+                            onSave = onSaveProduct,
+                            onChangeState = onChangeProductState,
+                            onClearMessage = onClearProductMessage,
                             modifier = Modifier.fillMaxSize().padding(padding),
                         )
                     } else {
@@ -339,99 +373,148 @@ private fun NoAuthorizedDestination(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ProductsScreen(
-    products: List<ProductDto>,
-    isLoading: Boolean,
-    errorMessage: String?,
-    hasLoaded: Boolean,
-    onRefresh: () -> Unit,
-    modifier: Modifier = Modifier,
+    products: List<ProductDto>, isLoading: Boolean, errorMessage: String?, hasLoaded: Boolean,
+    onRefresh: (Boolean) -> Unit, canManage: Boolean, isCoordinator: Boolean, isWorking: Boolean,
+    message: String?, messageIsError: Boolean, brands: List<CatalogOptionDto>, suppliers: List<CatalogOptionDto>,
+    onLoadCatalogs: () -> Unit, onSave: (Int?, String, String, Int?, Int?, String) -> Unit,
+    onChangeState: (ProductDto, Boolean) -> Unit, onClearMessage: () -> Unit, modifier: Modifier = Modifier,
 ) {
+    var editing by remember { mutableStateOf<ProductDto?>(null) }
+    var showForm by remember { mutableStateOf(false) }
+    var includeInactive by remember { mutableStateOf(false) }
+    var confirmStateChange by remember { mutableStateOf<Pair<ProductDto, Boolean>?>(null) }
+    LaunchedEffect(canManage) { if (canManage) onLoadCatalogs() }
+    LaunchedEffect(message, messageIsError) {
+        if (!messageIsError && message in setOf("Producto creado en el servidor.", "Producto actualizado en el servidor.")) showForm = false
+    }
     Column(modifier = modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
         Text("Productos e inventario", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Datos consultados desde la API de Django. El servidor es la fuente autoritativa.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Datos del servidor Django. El stock es informativo y se gestiona mediante inventario.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             EuropartesMetricPill("Productos", products.size.toString())
             EuropartesMetricPill("Origen", "SERVIDOR")
         }
-        Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Catálogo", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onRefresh, enabled = !isLoading, shape = RoundedCornerShape(12.dp)) {
-                Text(if (isLoading) "Cargando…" else "Actualizar")
+            if (canManage) Button(onClick = { editing = null; showForm = true; onLoadCatalogs() }, enabled = !isWorking) { Text("Crear") }
+            Spacer(Modifier.padding(horizontal = 2.dp))
+            OutlinedButton(onClick = { onRefresh(includeInactive) }, enabled = !isLoading && !isWorking, shape = RoundedCornerShape(12.dp)) { Text(if (isLoading) "Cargando…" else "Actualizar") }
+        }
+        if (canManage) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Incluir inactivos (para reactivar)", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.Switch(checked = includeInactive, onCheckedChange = { includeInactive = it; onRefresh(it) })
             }
+        }
+        if (message != null) {
+            EuropartesStatusMessage(message, isError = messageIsError)
+            TextButton(onClick = onClearMessage) { Text("Cerrar mensaje") }
         }
         Spacer(Modifier.height(8.dp))
         when {
-            isLoading && products.isEmpty() -> Box(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator()
-                    Text("Conectando con el catálogo…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            isLoading && products.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            errorMessage != null && products.isEmpty() -> Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                EuropartesStatusMessage(errorMessage, isError = true); EuropartesPrimaryButton("Reintentar consulta", { onRefresh(includeInactive) }, enabled = !isLoading)
             }
-            errorMessage != null && products.isEmpty() -> Column(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                EuropartesStatusMessage(errorMessage, isError = true)
-                Spacer(Modifier.height(12.dp))
-                EuropartesPrimaryButton(text = "Reintentar consulta", onClick = onRefresh, enabled = !isLoading)
-            }
-            hasLoaded && products.isEmpty() -> Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                EuropartesStatusMessage("No hay productos activos para mostrar.", isError = false)
-            }
-            else -> {
-                if (errorMessage != null) EuropartesStatusMessage(errorMessage, isError = true)
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(products, key = { it.id }) { product -> ProductCard(product) }
+            hasLoaded && products.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { EuropartesStatusMessage(if (includeInactive) "No hay productos en este catálogo." else "No hay productos activos para mostrar.", isError = false) }
+            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(products, key = { it.id }) { product ->
+                    ProductCard(product, canManage, isCoordinator, isWorking,
+                        onEdit = { editing = product; showForm = true; onLoadCatalogs() },
+                        onStateChange = { active -> confirmStateChange = product to active })
                 }
             }
         }
     }
+    if (showForm) ProductFormDialog(
+        initial = editing, brands = brands, suppliers = suppliers, isWorking = isWorking,
+        message = message, messageIsError = messageIsError,
+        onDismiss = { if (!isWorking) showForm = false },
+        onSubmit = { id, name, description, brand, supplier, price -> onSave(id, name, description, brand, supplier, price) },
+    )
+    confirmStateChange?.let { (product, active) ->
+        AlertDialog(
+            onDismissRequest = { if (!isWorking) confirmStateChange = null },
+            title = { Text(if (active) "Reactivar producto" else "Desactivar producto") },
+            text = { Text(if (active) "¿Reactivar ${product.nombre}? Volverá a aparecer en el catálogo activo." else "¿Desactivar ${product.nombre}? Se conservará en el servidor y dejará de aparecer en la lista habitual.") },
+            confirmButton = { Button(enabled = !isWorking, onClick = { onChangeState(product, active); confirmStateChange = null }) { Text(if (active) "Reactivar" else "Desactivar") } },
+            dismissButton = { TextButton(enabled = !isWorking, onClick = { confirmStateChange = null }) { Text("Cancelar") } },
+        )
+    }
 }
 
 @Composable
-private fun ProductCard(product: ProductDto) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(product.nombre, style = MaterialTheme.typography.titleMedium)
-            Text(
-                product.marcaNombre ?: product.marca?.let { "Marca #$it" } ?: "Marca no especificada",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-            if (!product.descripcion.isNullOrBlank()) {
-                Text(product.descripcion, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ProductFormDialog(
+    initial: ProductDto?, brands: List<CatalogOptionDto>, suppliers: List<CatalogOptionDto>, isWorking: Boolean,
+    message: String?, messageIsError: Boolean,
+    onDismiss: () -> Unit, onSubmit: (Int?, String, String, Int?, Int?, String) -> Unit,
+) {
+    var name by remember(initial?.id) { mutableStateOf(initial?.nombre.orEmpty()) }
+    var description by remember(initial?.id) { mutableStateOf(initial?.descripcion.orEmpty()) }
+    var price by remember(initial?.id) { mutableStateOf(initial?.precioUnitario.orEmpty()) }
+    var brandId by remember(initial?.id, brands) { mutableStateOf(initial?.marca) }
+    var supplierId by remember(initial?.id, suppliers) { mutableStateOf(initial?.proveedor) }
+    var brandExpanded by remember { mutableStateOf(false) }
+    var supplierExpanded by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "Crear producto remoto" else "Editar producto #${initial.id}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Nombre *") }, enabled = !isWorking, singleLine = true)
+                OutlinedTextField(description, { description = it }, label = { Text("Descripción *") }, enabled = !isWorking, minLines = 2)
+                Box {
+                    OutlinedButton(onClick = { brandExpanded = true }, enabled = !isWorking, modifier = Modifier.fillMaxWidth()) { Text(brands.firstOrNull { it.id == brandId }?.nombre ?: "Seleccionar marca *") }
+                    DropdownMenu(expanded = brandExpanded, onDismissRequest = { brandExpanded = false }) {
+                        brands.forEach { option -> DropdownMenuItem(text = { Text(option.nombre) }, onClick = { brandId = option.id; brandExpanded = false }) }
+                    }
+                }
+                Box {
+                    OutlinedButton(onClick = { supplierExpanded = true }, enabled = !isWorking, modifier = Modifier.fillMaxWidth()) { Text(suppliers.firstOrNull { it.id == supplierId }?.nombre ?: "Seleccionar proveedor *") }
+                    DropdownMenu(expanded = supplierExpanded, onDismissRequest = { supplierExpanded = false }) {
+                        suppliers.forEach { option -> DropdownMenuItem(text = { Text(option.nombre) }, onClick = { supplierId = option.id; supplierExpanded = false }) }
+                    }
+                }
+                OutlinedTextField(price, { price = it }, label = { Text("Precio unitario *") }, enabled = !isWorking, singleLine = true)
+                if (initial != null) {
+                    Text("Stock actual: ${initial.stockActual ?: 0} · Reservado: ${initial.stockReservado ?: 0} · Disponible: ${initial.stockDisponible ?: 0}", style = MaterialTheme.typography.bodySmall)
+                }
+                if (brands.isEmpty() || suppliers.isEmpty()) Text("No se pudieron cargar los catálogos. Comprueba permisos de marca/proveedor y vuelve a abrir el formulario.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                if (message != null) Text(message, color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
+        },
+        confirmButton = { Button(enabled = !isWorking && brands.isNotEmpty() && suppliers.isNotEmpty(), onClick = { onSubmit(initial?.id, name, description, brandId, supplierId, price) }) { if (isWorking) CircularProgressIndicator() else Text("Guardar en servidor") } },
+        dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+private fun ProductCard(product: ProductDto, canManage: Boolean, isCoordinator: Boolean, isWorking: Boolean, onEdit: () -> Unit, onStateChange: (Boolean) -> Unit) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(product.nombre, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                if (product.estado == false) EuropartesMetricPill("Estado", "INACTIVO")
+            }
+            Text(product.marcaNombre ?: product.marca?.let { "Marca #$it" } ?: "Marca no especificada", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+            if (!product.descripcion.isNullOrBlank()) Text(product.descripcion, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 EuropartesMetricPill("Precio", product.precioUnitario ?: "—")
                 EuropartesMetricPill("Stock disponible", product.stockDisponible?.toString() ?: "—")
             }
-            if (!product.proveedorNombre.isNullOrBlank()) {
-                Text("Proveedor: ${product.proveedorNombre}", style = MaterialTheme.typography.bodySmall)
+            if (!product.proveedorNombre.isNullOrBlank()) Text("Proveedor: ${product.proveedorNombre}", style = MaterialTheme.typography.bodySmall)
+            Text("Origen: SERVIDOR · ID ${product.id}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            if (canManage && (!isCoordinator || product.stockActual == 0)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(enabled = !isWorking && product.estado != false, onClick = onEdit) { Text("Editar") }
+                    if (product.estado == false) Button(enabled = !isWorking, onClick = { onStateChange(true) }) { Text("Reactivar") }
+                    else Button(enabled = !isWorking, onClick = { onStateChange(false) }) { Text("Desactivar") }
+                }
+            } else if (canManage && isCoordinator && product.stockActual != 0) {
+                Text("El Coordinador solo puede modificar productos con stock actual igual a cero.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
-            Text("Origen: SERVIDOR · Solo lectura", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
@@ -465,7 +548,9 @@ private fun ProductsScreenPreview() {
             isLoading = false,
             errorMessage = null,
             hasLoaded = true,
-            onRefresh = {},
+            onRefresh = {}, canManage = false, isCoordinator = false, isWorking = false,
+            message = null, messageIsError = false, brands = emptyList(), suppliers = emptyList(),
+            onLoadCatalogs = {}, onSave = { _, _, _, _, _, _ -> }, onChangeState = { _, _ -> }, onClearMessage = {},
             modifier = Modifier.fillMaxSize(),
         )
     }

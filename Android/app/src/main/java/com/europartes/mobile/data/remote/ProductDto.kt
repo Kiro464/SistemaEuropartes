@@ -2,11 +2,6 @@ package com.europartes.mobile.data.remote
 
 import com.google.gson.annotations.SerializedName
 
-/**
- * Fields mirror ProductoSerializer (ModelSerializer fields="__all__") and its
- * declared read-only/computed fields. Relationship IDs are nullable because
- * the serializer/model contract can vary with database data.
- */
 data class ProductDto(
     @SerializedName("id") val id: Int,
     @SerializedName("nombre") val nombre: String,
@@ -21,4 +16,20 @@ data class ProductDto(
     @SerializedName("proveedor_nombre") val proveedorNombre: String?,
     @SerializedName("fecha_registro") val fechaRegistro: String?,
     @SerializedName("estado") val estado: Boolean?,
+)
+
+data class ProductWriteRequest(
+    @SerializedName("nombre") val nombre: String,
+    @SerializedName("descripcion") val descripcion: String,
+    @SerializedName("marca") val marca: Int,
+    @SerializedName("proveedor") val proveedor: Int,
+    @SerializedName("precio_unitario") val precioUnitario: String,
+    @SerializedName("estado") val estado: Boolean = true,
+)
+
+data class ProductStateRequest(@SerializedName("estado") val estado: Boolean)
+
+data class CatalogOptionDto(
+    @SerializedName("id") val id: Int,
+    @SerializedName("nombre") val nombre: String,
 )
