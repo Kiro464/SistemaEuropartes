@@ -78,6 +78,54 @@
 
 .module-card { padding: var(--eu-card-padding, 22px); }
 
+/* Acabado editorial para inventario y operación comercial. */
+h1, h2, h3, h4 { font-family: var(--font-display); }
+.module-header h2, .page-header h1 { letter-spacing: -.035em; }
+.module-header, .page-header { margin-bottom: 26px; }
+.module-card, .dashboard-card, .dashboard-panel, .product-summary-card,
+.product-list-card, .dispatch-order {
+    border-radius: var(--radius-lg);
+    box-shadow: 0 2px 3px rgba(32, 42, 51, .025), 0 12px 30px -20px rgba(32, 42, 51, .22);
+}
+.module-card { padding: clamp(18px, 2vw, 26px); }
+.btn { border-radius: 9px; }
+.form-control, select.form-control, textarea.form-control {
+    border-radius: 9px;
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.form-control:focus, select.form-control:focus, textarea.form-control:focus {
+    border-color: color-mix(in srgb, var(--primary-color) 65%, var(--border-color));
+    box-shadow: var(--focus-ring);
+}
+.table-responsive, .catalog-table-wrap, .history-table-wrap, .data-table-wrap {
+    border-radius: 11px;
+}
+.euro-table thead th { letter-spacing: .055em; }
+.nav-link { border-radius: 8px; }
+.nav-link.active, .nav-link[aria-current="page"] { box-shadow: inset 3px 0 #ef783d; }
+.login-hero {
+    background:
+        radial-gradient(760px 480px at 8% 2%, rgba(239, 120, 61, .25), transparent 60%),
+        radial-gradient(640px 520px at 100% 100%, rgba(50, 83, 91, .45), transparent 62%),
+        #202a33;
+}
+.login-hero::after {
+    background-size: 56px 56px;
+    opacity: .48;
+}
+.login-hero-copy h1 { font-family: var(--font-display); letter-spacing: -.045em; }
+.login-card-head h2 { font-family: var(--font-display); letter-spacing: -.04em; }
+.login-submit { min-height: 48px; box-shadow: 0 8px 18px -10px rgba(201, 79, 24, .8); }
+
+@media (max-width: 900px) {
+    #main-content { padding: 22px 18px 30px; }
+    #topbar { padding-inline: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; }
+}
+
 .module-card + .module-card { margin-top: 18px; }
 
 /* El selector de período cede espacio antes que el botón "Actualizar". */
