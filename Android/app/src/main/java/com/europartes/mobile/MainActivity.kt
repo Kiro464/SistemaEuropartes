@@ -85,6 +85,8 @@ import com.europartes.mobile.ui.navigation.navigationForRole
 import com.europartes.mobile.ui.products.LocalProductsScreen
 import com.europartes.mobile.ui.products.LocalProductsViewModel
 import com.europartes.mobile.ui.products.ProductsViewModel
+import com.europartes.mobile.ui.purchasing.PurchasingScreen
+import com.europartes.mobile.ui.purchasing.PurchasingViewModel
 import com.europartes.mobile.ui.theme.EuropartesMobileTheme
 import kotlinx.coroutines.launch
 
@@ -282,6 +284,7 @@ private fun AuthenticatedShell(
     modifier: Modifier = Modifier,
 ) {
     val navigation = remember(user.grupo) { navigationForRole(user.grupo) }
+    val purchasingViewModel: PurchasingViewModel = viewModel()
     var destination by remember(user.userId, navigation) {
         mutableStateOf(navigation.firstOrNull()?.destination)
     }
@@ -292,6 +295,7 @@ private fun AuthenticatedShell(
         MobileDestination.KARDEX -> "Movimientos y Kardex"
         MobileDestination.LOCAL_DRAFTS -> "Borradores locales"
         MobileDestination.CATALOGS -> "Catálogos"
+        MobileDestination.PURCHASING -> "Solicitudes y compras"
         null -> "Europartes"
     }
 
@@ -430,6 +434,18 @@ private fun AuthenticatedShell(
                     sessionKey = user.userId,
                     modifier = Modifier.fillMaxSize().padding(padding),
                 )
+                MobileDestination.PURCHASING -> {
+                    if (user.grupo in PurchasingViewModel.requestRoles || user.grupo in PurchasingViewModel.purchaseRoles) {
+                        PurchasingScreen(
+                            viewModel = purchasingViewModel,
+                            role = user.grupo,
+                            sessionKey = user.userId,
+                            modifier = Modifier.fillMaxSize().padding(padding),
+                        )
+                    } else {
+                        NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                    }
+                }
                 null -> NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
             }
         }

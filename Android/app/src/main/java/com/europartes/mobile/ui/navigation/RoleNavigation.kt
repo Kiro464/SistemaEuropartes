@@ -8,6 +8,7 @@ enum class MobileDestination(val label: String, val description: String) {
     KARDEX("Movimientos y Kardex", "Consulta y exportación de movimientos autorizados por Django"),
     LOCAL_DRAFTS("Borradores locales", "CRUD local persistido en Room"),
     CATALOGS("Catálogos", "Consulta y mantenimiento de catálogos autorizados"),
+    PURCHASING("Solicitudes y compras", "Seguimiento de abastecimiento y recepción"),
 }
 
 data class NavigationItem(
@@ -32,6 +33,9 @@ fun navigationForRole(role: String): List<NavigationItem> = buildList {
     }
     if (CatalogKind.entries.any { canReadCatalog(it, role) }) {
         add(NavigationItem(MobileDestination.CATALOGS, MobileDestination.CATALOGS.label))
+    }
+    if (role in setOf("Vendedor", "Coordinador de Logística", "Administrador General", "Asesor Financiero", "Oficial de Logística")) {
+        add(NavigationItem(MobileDestination.PURCHASING, MobileDestination.PURCHASING.label))
     }
 }
 
