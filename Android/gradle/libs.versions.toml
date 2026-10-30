@@ -14,7 +14,7 @@ lifecycle = "2.9.4"
 securityCrypto = "1.1.0"
 okhttp = "4.12.0"
 room = "2.7.2"
-ksp = "2.2.10-2.0.2"
+ksp = "2.3.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
