@@ -13,6 +13,8 @@ enum class MobileDestination(val label: String, val description: String) {
     SALES("Punto de venta", "Facturación autorizada para Vendedor"),
     SALES_HISTORY("Historial de facturas", "Consulta de ventas según el rol"),
     DISPATCHES("Despachos", "Órdenes pendientes para Oficial de Logística"),
+    USER_ADMIN("Cuentas y roles", "Administración de cuentas por Soporte TI"),
+    ACCOUNT_SECURITY("Seguridad de cuenta", "Cambio de contraseña propia"),
 }
 
 data class NavigationItem(
@@ -52,6 +54,12 @@ fun navigationForRole(role: String): List<NavigationItem> = buildList {
     }
     if (role == EuropartesRoles.OFICIAL_LOGISTICA) {
         add(NavigationItem(MobileDestination.DISPATCHES, MobileDestination.DISPATCHES.label))
+    }
+    if (role == EuropartesRoles.SOPORTE_TI) {
+        add(NavigationItem(MobileDestination.USER_ADMIN, MobileDestination.USER_ADMIN.label))
+    }
+    if (role in EuropartesRoles.all) {
+        add(NavigationItem(MobileDestination.ACCOUNT_SECURITY, MobileDestination.ACCOUNT_SECURITY.label))
     }
 }
 

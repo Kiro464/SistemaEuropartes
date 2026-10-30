@@ -93,6 +93,9 @@ import com.europartes.mobile.ui.sales.DispatchesScreen
 import com.europartes.mobile.ui.sales.PointOfSaleScreen
 import com.europartes.mobile.ui.sales.SalesHistoryScreen
 import com.europartes.mobile.ui.sales.SalesViewModel
+import com.europartes.mobile.ui.security.ChangeOwnPasswordScreen
+import com.europartes.mobile.ui.security.SecurityAdminScreen
+import com.europartes.mobile.ui.security.SecurityViewModel
 import com.europartes.mobile.ui.theme.EuropartesMobileTheme
 import kotlinx.coroutines.launch
 
@@ -294,6 +297,7 @@ private fun AuthenticatedShell(
     val navigation = remember(user.grupo) { navigationForRole(user.grupo) }
     val purchasingViewModel: PurchasingViewModel = viewModel()
     val salesViewModel: SalesViewModel = viewModel()
+    val securityViewModel: SecurityViewModel = viewModel()
     DisposableEffect(user.userId) {
         onDispose { salesViewModel.reset() }
     }
@@ -312,6 +316,8 @@ private fun AuthenticatedShell(
         MobileDestination.SALES -> "Punto de venta"
         MobileDestination.SALES_HISTORY -> "Historial de facturas"
         MobileDestination.DISPATCHES -> "Despachos pendientes"
+        MobileDestination.USER_ADMIN -> "Cuentas y roles"
+        MobileDestination.ACCOUNT_SECURITY -> "Seguridad de cuenta"
         null -> "Europartes"
     }
 
@@ -481,6 +487,14 @@ private fun AuthenticatedShell(
                     if (user.grupo == SalesViewModel.OFICIAL_LOGISTICA) {
                         DispatchesScreen(user.grupo, user.userId, salesViewModel, onRefreshProducts, Modifier.fillMaxSize().padding(padding))
                     } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.USER_ADMIN -> {
+                    if (user.grupo == "Soporte TI") {
+                        SecurityAdminScreen(user.grupo, user.userId, securityViewModel, Modifier.fillMaxSize().padding(padding))
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.ACCOUNT_SECURITY -> {
+                    ChangeOwnPasswordScreen(user.grupo, securityViewModel, Modifier.fillMaxSize().padding(padding))
                 }
                 null -> NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
             }

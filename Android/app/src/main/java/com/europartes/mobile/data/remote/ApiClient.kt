@@ -38,6 +38,9 @@ object ApiClient {
     fun salesApi(tokenStore: TokenStore): SalesApi =
         retrofit(authenticatedClient(tokenStore)).create(SalesApi::class.java)
 
+    fun securityApi(tokenStore: TokenStore): SecurityApi =
+        retrofit(authenticatedClient(tokenStore)).create(SecurityApi::class.java)
+
     private fun authenticatedClient(tokenStore: TokenStore): OkHttpClient =
         baseClient.newBuilder()
             .addInterceptor { chain ->
