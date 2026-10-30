@@ -226,6 +226,15 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadCurrencyConfiguration() {
+        if (mutableState.value.configuration != null) return
+        viewModelScope.launch {
+            sales.configuration().onSuccess { configuration ->
+                mutableState.value = mutableState.value.copy(configuration = configuration)
+            }
+        }
+    }
+
     fun loadInvoiceDetail(role: String, id: Int) {
         if (role !in HISTORY_ROLES || mutableState.value.isWorking) return
         mutableState.value = mutableState.value.copy(isWorking = true, error = null, invoiceDetail = null)

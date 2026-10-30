@@ -1,5 +1,6 @@
 package com.europartes.mobile.ui.sales
 
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,49 @@ import java.math.RoundingMode
 import java.util.Locale
 
 private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+private const val SALES_DISPLAY_PREFERENCES = "europartes_sales_display"
+private const val SALES_DISPLAY_CURRENCY = "currency"
+
+@Composable
+private fun rememberSalesCurrency(): Pair<String, (String) -> Unit> {
+    val context = LocalContext.current
+    val preferences = remember(context) {
+        context.getSharedPreferences(SALES_DISPLAY_PREFERENCES, Context.MODE_PRIVATE)
+    }
+    var currency by rememberSaveable {
+        mutableStateOf(preferences.getString(SALES_DISPLAY_CURRENCY, "NIO")?.takeIf { it == "NIO" || it == "USD" } ?: "NIO")
+    }
+    val selectCurrency: (String) -> Unit = { selected ->
+        if (selected == "NIO" || selected == "USD") {
+            currency = selected
+            preferences.edit().putString(SALES_DISPLAY_CURRENCY, selected).apply()
+        }
+    }
+    return currency to selectCurrency
+}
+
+private fun formatSalesAmount(value: String?, currency: String, exchangeRate: String?): String {
+    val amount = value?.toBigDecimalOrNull() ?: return "—"
+    val symbol = if (currency == "USD") "\$" else "C\$"
+    val displayed = if (currency == "USD") {
+        val rate = exchangeRate?.toBigDecimalOrNull()?.takeIf { it.signum() > 0 } ?: return "—"
+        amount.divide(rate, 2, RoundingMode.HALF_UP)
+    } else {
+        amount.setScale(2, RoundingMode.HALF_UP)
+    }
+    return "$symbol ${displayed.toPlainString()}"
+}
+
+@Composable
+private fun SalesCurrencySelector(currency: String, rateAvailable: Boolean, onCurrencyChange: (String) -> Unit) {
+    OutlinedButton(
+        onClick = { onCurrencyChange(if (currency == "NIO") "USD" else "NIO") },
+        enabled = currency == "USD" || rateAvailable,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("Moneda de visualización: ${if (currency == "USD" && !rateAvailable) "NIO · tasa USD no disponible" else currency}")
+    }
+}
 
 @Composable
 fun CustomersScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, modifier: Modifier = Modifier) {
@@ -176,6 +220,10 @@ private fun CustomerFormDialog(initial: CustomerDto?, busy: Boolean, onDismiss: 
 @Composable
 fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, onProductsRefresh: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsState()
+    val (currency, onCurrencyChange) = rememberSalesCurrency()
+    val exchangeRate = state.configuration?.exchangeRate
+    val rateAvailable = exchangeRate?.toBigDecimalOrNull()?.signum()?.let { it > 0 } == true
+    val displayCurrency = if (currency == "USD" && !rateAvailable) "NIO" else currency
     var selectedProductId by rememberSaveable(sessionKey) { mutableStateOf<Int?>(null) }
     var quantityInput by rememberSaveable(sessionKey) { mutableStateOf("1") }
     var productSearch by rememberSaveable(sessionKey) { mutableStateOf("") }
@@ -198,6 +246,7 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Punto de venta", style = MaterialTheme.typography.headlineMedium)
         Text("Los precios, el empleado, la reserva y el total final los determina Django.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SalesCurrencySelector(currency, rateAvailable, onCurrencyChange)
         OutlinedButton(onClick = { viewModel.loadPointOfSale(role) }, enabled = !state.isLoading && !state.isWorking) {
             Text(if (state.isLoading) "Actualizando…" else "Actualizar clientes, productos y configuración")
         }
@@ -219,7 +268,7 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
                 matchingProducts.forEach { item -> DropdownMenuItem(text = { Text("${item.nombre} · disponible ${item.stockDisponible ?: "—"}") }, onClick = { selectedProductId = item.id; productMenu = false }) }
                 if (matchingProducts.isEmpty()) DropdownMenuItem(text = { Text("Sin productos coincidentes") }, onClick = { productMenu = false }, enabled = false)
             }
-            product?.let { Text("${it.descripcion.orEmpty()}\nPrecio unitario informativo: ${it.precioUnitario ?: "—"}\nStock disponible: ${it.stockDisponible ?: "—"}", style = MaterialTheme.typography.bodySmall) }
+            product?.let { Text("${it.descripcion.orEmpty()}\nPrecio unitario informativo: ${formatSalesAmount(it.precioUnitario, displayCurrency, exchangeRate)}\nStock disponible: ${it.stockDisponible ?: "—"}", style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 EuropartesTextField(quantityInput, { quantityInput = it.filter(Char::isDigit).take(6) }, "Cantidad", modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 val canAdd = product?.let { selected -> quantityInput.toIntOrNull()?.let { it > 0 && (state.cart[selected.id] ?: 0) + it <= (selected.stockDisponible ?: 0) } } == true
@@ -235,15 +284,15 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
             if (cartLines.isEmpty()) Text("Aún no hay productos en la venta.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             cartLines.forEach { (item, qty) ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text(item.nombre, fontWeight = FontWeight.Medium); Text("${qty} × ${item.precioUnitario ?: "—"}", style = MaterialTheme.typography.bodySmall) }
+                    Column(Modifier.weight(1f)) { Text(item.nombre, fontWeight = FontWeight.Medium); Text("${qty} × ${formatSalesAmount(item.precioUnitario, displayCurrency, exchangeRate)}", style = MaterialTheme.typography.bodySmall) }
                     TextButton(enabled = !state.isWorking, onClick = { viewModel.setCartQuantity(item.id, qty - 1) }) { Text("−") }
                     Text(qty.toString())
                     TextButton(enabled = !state.isWorking, onClick = { viewModel.setCartQuantity(item.id, qty + 1) }) { Text("+") }
                 }
             }
-            EuropartesMetricPill("Subtotal estimado", subtotal.setScale(2, RoundingMode.HALF_UP).toPlainString())
-            EuropartesMetricPill("IVA (${state.configuration?.taxPercent ?: "—"}%)", tax.toPlainString())
-            Text("Total estimado: ${totalEstimate.setScale(2, RoundingMode.HALF_UP)}", style = MaterialTheme.typography.titleMedium)
+            EuropartesMetricPill("Subtotal estimado", formatSalesAmount(subtotal.toPlainString(), displayCurrency, exchangeRate))
+            EuropartesMetricPill("IVA (${state.configuration?.taxPercent ?: "—"}%)", formatSalesAmount(tax.toPlainString(), displayCurrency, exchangeRate))
+            Text("Total estimado: ${formatSalesAmount(totalEstimate.toPlainString(), displayCurrency, exchangeRate)}", style = MaterialTheme.typography.titleMedium)
         }
         EuropartesPrimaryButton("Revisar y facturar", onClick = { showConfirm = true }, enabled = customer != null && state.cart.isNotEmpty() && !state.isWorking && !state.invoiceOutcomeUncertain, isLoading = state.isWorking)
     }
@@ -266,15 +315,23 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
 @Composable
 fun SalesHistoryScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsState()
+    val (currency, onCurrencyChange) = rememberSalesCurrency()
+    val exchangeRate = state.configuration?.exchangeRate
+    val rateAvailable = exchangeRate?.toBigDecimalOrNull()?.signum()?.let { it > 0 } == true
+    val displayCurrency = if (currency == "USD" && !rateAvailable) "NIO" else currency
     val context = LocalContext.current
     var choosingFile by remember { mutableStateOf(false) }
     val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(XLSX_MIME)) { uri ->
         choosingFile = false
         if (uri == null) viewModel.cancelExport() else viewModel.exportHistory(role, context.contentResolver, uri)
     }
-    LaunchedEffect(role, sessionKey) { viewModel.loadHistory(role) }
+    LaunchedEffect(role, sessionKey) {
+        viewModel.loadCurrencyConfiguration()
+        viewModel.loadHistory(role)
+    }
     Column(modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Historial de facturas", style = MaterialTheme.typography.headlineMedium)
+        SalesCurrencySelector(currency, rateAvailable, onCurrencyChange)
         EuropartesSectionCard("Filtros", "Fechas en formato AAAA-MM-DD; vendedor queda limitado a sus propias ventas por Django.") {
             FilterField("Fecha inicial", state.filters.startDate, numeric = false) { viewModel.updateFilters(state.filters.copy(startDate = it)) }
             FilterField("Fecha final", state.filters.endDate, numeric = false) { viewModel.updateFilters(state.filters.copy(endDate = it)) }
@@ -296,7 +353,7 @@ fun SalesHistoryScreen(role: String, sessionKey: Int, viewModel: SalesViewModel,
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text("Factura #${invoice.id} · ${invoice.customer}", style = MaterialTheme.typography.titleMedium)
                         Text("${invoice.date} · ${invoice.employee}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Total: ${invoice.total}", style = MaterialTheme.typography.titleSmall)
+                        Text("Total: ${formatSalesAmount(invoice.total, displayCurrency, exchangeRate)}", style = MaterialTheme.typography.titleSmall)
                         TextButton(enabled = !state.isWorking, onClick = { viewModel.loadInvoiceDetail(role, invoice.id) }) { Text("Ver detalle") }
                     }
                 }
@@ -310,7 +367,7 @@ fun SalesHistoryScreen(role: String, sessionKey: Int, viewModel: SalesViewModel,
             title = { Text("Factura #${detail.invoiceId}") },
             text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${detail.date}\nCliente: ${detail.customer}\nEmpleado: ${detail.employee}")
-                detail.lines.forEach { Text("${it.product}\n${it.quantity} × ${it.unitPrice} = ${it.subtotal}") }
+                detail.lines.forEach { Text("${it.product}\n${it.quantity} × ${formatSalesAmount(it.unitPrice, displayCurrency, exchangeRate)} = ${formatSalesAmount(it.subtotal, displayCurrency, exchangeRate)}") }
             } },
             confirmButton = { TextButton(onClick = { viewModel.closeInvoiceDetail() }) { Text("Cerrar") } },
         )
