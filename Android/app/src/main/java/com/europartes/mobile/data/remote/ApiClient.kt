@@ -23,8 +23,14 @@ object ApiClient {
 
     val authApi: AuthApi by lazy { retrofit(baseClient).create(AuthApi::class.java) }
 
-    fun productApi(tokenStore: TokenStore): ProductApi {
-        val authenticatedClient = baseClient.newBuilder()
+    fun productApi(tokenStore: TokenStore): ProductApi =
+        retrofit(authenticatedClient(tokenStore)).create(ProductApi::class.java)
+
+    fun catalogApi(tokenStore: TokenStore): CatalogApi =
+        retrofit(authenticatedClient(tokenStore)).create(CatalogApi::class.java)
+
+    private fun authenticatedClient(tokenStore: TokenStore): OkHttpClient =
+        baseClient.newBuilder()
             .addInterceptor { chain ->
                 val token = tokenStore.accessToken()
                 val request = chain.request().newBuilder().apply {
@@ -35,8 +41,6 @@ object ApiClient {
             .authenticator(JwtAuthenticator(tokenStore, authApi))
             .addInterceptor(ReadRetryInterceptor(maxRetries = 2))
             .build()
-        return retrofit(authenticatedClient).create(ProductApi::class.java)
-    }
 
     private fun retrofit(client: OkHttpClient): Retrofit =
         Retrofit.Builder()

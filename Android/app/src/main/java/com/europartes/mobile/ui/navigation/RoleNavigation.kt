@@ -1,10 +1,12 @@
 package com.europartes.mobile.ui.navigation
 
 import com.europartes.mobile.data.repository.EuropartesRoles
+import com.europartes.mobile.data.repository.CatalogKind
 
 enum class MobileDestination(val label: String, val description: String) {
     PRODUCTS("Productos del servidor", "Consulta de productos autorizados por Django"),
     LOCAL_DRAFTS("Borradores locales", "CRUD local persistido en Room"),
+    CATALOGS("Catálogos", "Consulta y mantenimiento de catálogos autorizados"),
 }
 
 data class NavigationItem(
@@ -24,4 +26,17 @@ fun navigationForRole(role: String): List<NavigationItem> = buildList {
     if (role in EuropartesRoles.canManageProductsInBackend) {
         add(NavigationItem(MobileDestination.LOCAL_DRAFTS, MobileDestination.LOCAL_DRAFTS.label))
     }
+    if (CatalogKind.entries.any { canReadCatalog(it, role) }) {
+        add(NavigationItem(MobileDestination.CATALOGS, MobileDestination.CATALOGS.label))
+    }
+}
+
+fun canReadCatalog(kind: CatalogKind, role: String): Boolean = when (kind) {
+    CatalogKind.BRANDS, CatalogKind.SUPPLIERS, CatalogKind.COUNTRIES -> role in setOf(EuropartesRoles.COORDINADOR_LOGISTICA, EuropartesRoles.SOPORTE_TI)
+    CatalogKind.DEPARTMENTS, CatalogKind.EMPLOYEES -> role in setOf(EuropartesRoles.OFICIAL_LOGISTICA, EuropartesRoles.SOPORTE_TI)
+}
+
+fun canManageCatalog(kind: CatalogKind, role: String): Boolean = when (kind) {
+    CatalogKind.BRANDS, CatalogKind.SUPPLIERS, CatalogKind.COUNTRIES -> role in setOf(EuropartesRoles.COORDINADOR_LOGISTICA, EuropartesRoles.SOPORTE_TI)
+    CatalogKind.DEPARTMENTS, CatalogKind.EMPLOYEES -> role == EuropartesRoles.SOPORTE_TI
 }

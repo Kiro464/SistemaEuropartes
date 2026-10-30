@@ -78,6 +78,7 @@ import com.europartes.mobile.ui.components.EuropartesStateBadge
 import com.europartes.mobile.ui.components.EuropartesStatusMessage
 import com.europartes.mobile.ui.components.EuropartesTextField
 import com.europartes.mobile.ui.login.LoginViewModel
+import com.europartes.mobile.ui.catalogs.CatalogsScreen
 import com.europartes.mobile.ui.navigation.MobileDestination
 import com.europartes.mobile.ui.navigation.navigationForRole
 import com.europartes.mobile.ui.products.LocalProductsScreen
@@ -288,6 +289,7 @@ private fun AuthenticatedShell(
     val title = when (destination) {
         MobileDestination.PRODUCTS -> "Productos del servidor"
         MobileDestination.LOCAL_DRAFTS -> "Borradores locales"
+        MobileDestination.CATALOGS -> "Catálogos"
         null -> "Europartes"
     }
 
@@ -410,6 +412,11 @@ private fun AuthenticatedShell(
                         NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
                     }
                 }
+                MobileDestination.CATALOGS -> CatalogsScreen(
+                    role = user.grupo,
+                    sessionKey = user.userId,
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                )
                 null -> NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
             }
         }
