@@ -115,10 +115,13 @@ class MainActivity : ComponentActivity() {
                             username = loginState.username,
                             password = loginState.password,
                             isLoading = loginState.isLoading,
+                            isRestoringSession = loginState.isRestoringSession,
+                            canRetrySessionRestore = loginState.canRetrySessionRestore,
                             errorMessage = loginState.errorMessage,
                             onUsernameChange = loginViewModel::onUsernameChange,
                             onPasswordChange = loginViewModel::onPasswordChange,
                             onLogin = loginViewModel::login,
+                            onRestoreSession = loginViewModel::retrySessionRestore,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
@@ -166,6 +169,9 @@ private fun LoginScreen(
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     modifier: Modifier = Modifier,
+    isRestoringSession: Boolean = false,
+    canRetrySessionRestore: Boolean = false,
+    onRestoreSession: () -> Unit = {},
 ) {
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     Column(
@@ -199,7 +205,7 @@ private fun LoginScreen(
                 value = username,
                 onValueChange = onUsernameChange,
                 label = "Usuario",
-                enabled = !isLoading,
+                enabled = !isLoading && !isRestoringSession,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             )
             EuropartesTextField(
@@ -207,10 +213,10 @@ private fun LoginScreen(
                 onValueChange = onPasswordChange,
                 label = "Contraseña",
                 visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
-                enabled = !isLoading,
+                enabled = !isLoading && !isRestoringSession,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingContent = {
-                    TextButton(onClick = { passwordVisible = !passwordVisible }, enabled = !isLoading) {
+                    TextButton(onClick = { passwordVisible = !passwordVisible }, enabled = !isLoading && !isRestoringSession) {
                         Text(if (passwordVisible) "Ocultar" else "Mostrar", style = MaterialTheme.typography.labelMedium)
                     }
                 },
@@ -218,11 +224,19 @@ private fun LoginScreen(
             if (errorMessage != null) {
                 EuropartesStatusMessage(errorMessage, isError = true)
             }
+            if (canRetrySessionRestore) {
+                TextButton(
+                    onClick = onRestoreSession,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Reintentar verificación de sesión")
+                }
+            }
             EuropartesPrimaryButton(
-                text = "Iniciar sesión",
+                text = if (isRestoringSession) "Comprobando sesión guardada" else "Iniciar sesión",
                 onClick = onLogin,
-                enabled = !isLoading,
-                isLoading = isLoading,
+                enabled = !isLoading && !isRestoringSession,
+                isLoading = isLoading || isRestoringSession,
             )
         }
         Spacer(Modifier.height(20.dp))

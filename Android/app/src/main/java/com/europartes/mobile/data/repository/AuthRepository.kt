@@ -8,7 +8,10 @@ import com.europartes.mobile.data.remote.RefreshRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
+import com.google.gson.JsonParser
+import java.util.Base64
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
 /**
  * Roles funcionales confirmados en Backend/apps/seguridad/usuarios/roles.py.
@@ -58,9 +61,9 @@ class AuthRepository(
         withContext(Dispatchers.IO) {
             try {
                 val response = api.login(LoginRequest(username.trim(), password))
-                if (response.access.isBlank()) {
+                if (response.access.isBlank() || response.refresh.isNullOrBlank()) {
                     return@withContext Result.failure(
-                        IllegalStateException("La API no devolvió un token de acceso.")
+                        IllegalStateException("La API no devolvió un par de tokens válido.")
                     )
                 }
                 val user = response.user
@@ -71,6 +74,8 @@ class AuthRepository(
                 }
                 tokenStore.save(response.access, response.refresh)
                 Result.success(user)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: HttpException) {
                 val message = when (e.code()) {
                     400, 401 -> "Usuario o contraseña incorrectos."
@@ -101,6 +106,8 @@ class AuthRepository(
             }
             tokenStore.save(response.access, response.refresh ?: refresh)
             Result.success(response.access)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: HttpException) {
             // Solo limpiar la sesión cuando el backend rechaza expresamente el refresh.
             if (e.code() == 400 || e.code() == 401) {
@@ -125,7 +132,91 @@ class AuthRepository(
         }
     }
 
-    fun hasStoredSession(): Boolean = !tokenStore.accessToken().isNullOrBlank()
+    /**
+     * Restores identity only after Django validates the refresh token and returns a fresh access
+     * token. The decoded claims are used for display and role-based navigation only; Django
+     * remains the authorization authority for every remote operation.
+     *
+     * @return `null` when no stored session exists; otherwise the restoration result.
+     */
+    suspend fun restoreSession(): Result<AuthenticatedUser>? = withContext(Dispatchers.IO) {
+        if (!hasStoredSession()) return@withContext null
+
+        val refresh = tokenStore.refreshToken()
+        if (refresh.isNullOrBlank()) {
+            tokenStore.clear()
+            return@withContext Result.failure(
+                IllegalStateException("La sesión guardada no se puede renovar. Inicia sesión nuevamente.")
+            )
+        }
+
+        try {
+            val response = api.refresh(RefreshRequest(refresh))
+            if (response.access.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("El servidor no devolvió una sesión válida. Puedes volver a intentarlo.")
+                )
+            }
+
+            val user = authenticatedUserFromAccessToken(response.access)
+            if (user == null) {
+                tokenStore.clear()
+                return@withContext Result.failure(
+                    IllegalStateException("No se pudo validar el perfil de la sesión. Inicia sesión nuevamente.")
+                )
+            }
+
+            tokenStore.save(response.access, response.refresh ?: refresh)
+            Result.success(user)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: HttpException) {
+            if (e.code() == 400 || e.code() == 401) {
+                tokenStore.clear()
+                Result.failure(IllegalStateException("La sesión expiró. Inicia sesión nuevamente."))
+            } else {
+                // Preserve a potentially valid refresh token on server and permission errors.
+                Result.failure(
+                    IllegalStateException("No se pudo comprobar la sesión (HTTP ${e.code()}). Puedes volver a intentarlo.")
+                )
+            }
+        } catch (_: IOException) {
+            // Connectivity does not prove that the stored refresh token is invalid.
+            Result.failure(
+                IllegalStateException("No se pudo conectar para comprobar la sesión. Puedes volver a intentarlo.")
+            )
+        } catch (_: Exception) {
+            Result.failure(
+                IllegalStateException("Ocurrió un error al comprobar la sesión. Puedes volver a intentarlo.")
+            )
+        }
+    }
+
+    fun hasStoredSession(): Boolean =
+        !tokenStore.accessToken().isNullOrBlank() || !tokenStore.refreshToken().isNullOrBlank()
 
     fun logout() = tokenStore.clear()
+}
+
+/** Reads the identity claims from a token freshly returned by the backend refresh endpoint. */
+internal fun authenticatedUserFromAccessToken(accessToken: String): AuthenticatedUser? {
+    return try {
+        val payloadSegment = accessToken.split('.').getOrNull(1) ?: return null
+        val payload = String(Base64.getUrlDecoder().decode(payloadSegment), Charsets.UTF_8)
+        val claims = JsonParser.parseString(payload).asJsonObject
+        val userId = claims.get("user_id")?.asInt ?: return null
+        val username = claims.get("username")?.asString.orEmpty()
+        val group = claims.get("grupo")?.asString.orEmpty()
+        if (userId <= 0 || username.isBlank() || group !in EuropartesRoles.all) return null
+
+        AuthenticatedUser(
+            userId = userId,
+            username = username,
+            nombres = claims.get("nombres")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
+            apellidos = claims.get("apellidos")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
+            grupo = group,
+        )
+    } catch (_: Exception) {
+        null
+    }
 }

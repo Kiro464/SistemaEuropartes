@@ -32,7 +32,12 @@ class JwtAuthenticator(
                     .build()
             }
 
-            val refresh = tokenStore.refreshToken() ?: return null
+            val refresh = tokenStore.refreshToken()
+            if (refresh.isNullOrBlank()) {
+                tokenStore.clear()
+                SessionInvalidation.notifyRejectedSession()
+                return null
+            }
             return try {
                 val refreshed = runBlocking { authApi.refresh(RefreshRequest(refresh)) }
                 if (refreshed.access.isBlank()) return null
@@ -41,7 +46,10 @@ class JwtAuthenticator(
                     .header("Authorization", "Bearer ${refreshed.access}")
                     .build()
             } catch (error: HttpException) {
-                if (error.code() == 400 || error.code() == 401) tokenStore.clear()
+                if (error.code() == 400 || error.code() == 401) {
+                    tokenStore.clear()
+                    SessionInvalidation.notifyRejectedSession()
+                }
                 null
             } catch (_: IOException) {
                 // A transient failure should not erase a potentially valid refresh token.
