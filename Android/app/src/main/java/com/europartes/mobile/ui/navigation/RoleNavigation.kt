@@ -5,6 +5,7 @@ import com.europartes.mobile.data.repository.CatalogKind
 
 enum class MobileDestination(val label: String, val description: String) {
     PRODUCTS("Productos del servidor", "Consulta de productos autorizados por Django"),
+    KARDEX("Movimientos y Kardex", "Consulta y exportación de movimientos autorizados por Django"),
     LOCAL_DRAFTS("Borradores locales", "CRUD local persistido en Room"),
     CATALOGS("Catálogos", "Consulta y mantenimiento de catálogos autorizados"),
 }
@@ -22,6 +23,9 @@ data class NavigationItem(
 fun navigationForRole(role: String): List<NavigationItem> = buildList {
     if (role in EuropartesRoles.canReadProducts) {
         add(NavigationItem(MobileDestination.PRODUCTS, MobileDestination.PRODUCTS.label))
+    }
+    if (role in EuropartesRoles.canReadKardex) {
+        add(NavigationItem(MobileDestination.KARDEX, MobileDestination.KARDEX.label))
     }
     if (role in EuropartesRoles.canManageProductsInBackend) {
         add(NavigationItem(MobileDestination.LOCAL_DRAFTS, MobileDestination.LOCAL_DRAFTS.label))

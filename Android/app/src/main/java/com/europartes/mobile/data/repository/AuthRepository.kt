@@ -46,6 +46,14 @@ object EuropartesRoles {
         SOPORTE_TI,
     )
 
+    // Refleja PuedeConsultarKardex en Backend/apps/movimientos/compra/permissions.py.
+    val canReadKardex = setOf(
+        ADMIN_GENERAL,
+        ASESOR_FINANCIERO,
+        COORDINADOR_LOGISTICA,
+        OFICIAL_LOGISTICA,
+    )
+
     // Refleja ROLES_PRODUCTO_GESTION. No significa que el CRUD móvil esté implementado.
     val canManageProductsInBackend = setOf(
         COORDINADOR_LOGISTICA,

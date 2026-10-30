@@ -80,6 +80,7 @@ import com.europartes.mobile.ui.components.EuropartesTextField
 import com.europartes.mobile.ui.login.LoginViewModel
 import com.europartes.mobile.ui.catalogs.CatalogsScreen
 import com.europartes.mobile.ui.navigation.MobileDestination
+import com.europartes.mobile.ui.inventory.KardexScreen
 import com.europartes.mobile.ui.navigation.navigationForRole
 import com.europartes.mobile.ui.products.LocalProductsScreen
 import com.europartes.mobile.ui.products.LocalProductsViewModel
@@ -288,6 +289,7 @@ private fun AuthenticatedShell(
     val scope = rememberCoroutineScope()
     val title = when (destination) {
         MobileDestination.PRODUCTS -> "Productos del servidor"
+        MobileDestination.KARDEX -> "Movimientos y Kardex"
         MobileDestination.LOCAL_DRAFTS -> "Borradores locales"
         MobileDestination.CATALOGS -> "Catálogos"
         null -> "Europartes"
@@ -389,6 +391,17 @@ private fun AuthenticatedShell(
                             onSave = onSaveProduct,
                             onChangeState = onChangeProductState,
                             onClearMessage = onClearProductMessage,
+                            modifier = Modifier.fillMaxSize().padding(padding),
+                        )
+                    } else {
+                        NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                    }
+                }
+                MobileDestination.KARDEX -> {
+                    if (user.grupo in EuropartesRoles.canReadKardex) {
+                        KardexScreen(
+                            role = user.grupo,
+                            sessionKey = user.userId,
                             modifier = Modifier.fillMaxSize().padding(padding),
                         )
                     } else {
