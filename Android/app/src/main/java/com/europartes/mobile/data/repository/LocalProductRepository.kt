@@ -4,6 +4,7 @@ import com.europartes.mobile.data.local.ProductDao
 import com.europartes.mobile.data.local.ProductEntity
 import com.europartes.mobile.data.remote.ProductDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
@@ -36,6 +37,8 @@ class LocalProductRepository(private val dao: ProductDao) {
                     )
                 )
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Result.failure(error)
         }
@@ -49,14 +52,14 @@ class LocalProductRepository(private val dao: ProductDao) {
         precioUnitario: String?,
         stockActual: Int?,
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val current = dao.findByLocalId(localId)
-            ?: return@withContext Result.failure(IllegalArgumentException("El borrador local ya no existe."))
-        if (current.syncState != ProductEntity.LOCAL_ONLY) {
-            return@withContext Result.failure(IllegalStateException("Solo se pueden editar borradores locales en esta fase."))
-        }
-        if (nombre.isBlank()) return@withContext Result.failure(IllegalArgumentException("El nombre del producto es obligatorio."))
-        if (stockActual != null && stockActual < 0) return@withContext Result.failure(IllegalArgumentException("El stock local no puede ser negativo."))
         try {
+            val current = dao.findByLocalId(localId)
+                ?: return@withContext Result.failure(IllegalArgumentException("El borrador local ya no existe."))
+            if (current.syncState != ProductEntity.LOCAL_ONLY) {
+                return@withContext Result.failure(IllegalStateException("Solo se pueden editar borradores locales en esta fase."))
+            }
+            if (nombre.isBlank()) return@withContext Result.failure(IllegalArgumentException("El nombre del producto es obligatorio."))
+            if (stockActual != null && stockActual < 0) return@withContext Result.failure(IllegalArgumentException("El stock local no puede ser negativo."))
             dao.update(
                 current.copy(
                     nombre = nombre.trim(),
@@ -69,6 +72,8 @@ class LocalProductRepository(private val dao: ProductDao) {
                 )
             )
             Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Result.failure(error)
         }
@@ -83,6 +88,8 @@ class LocalProductRepository(private val dao: ProductDao) {
             }
             dao.delete(current)
             Result.success(Unit)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Result.failure(error)
         }
