@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -87,6 +88,11 @@ import com.europartes.mobile.ui.products.LocalProductsViewModel
 import com.europartes.mobile.ui.products.ProductsViewModel
 import com.europartes.mobile.ui.purchasing.PurchasingScreen
 import com.europartes.mobile.ui.purchasing.PurchasingViewModel
+import com.europartes.mobile.ui.sales.CustomersScreen
+import com.europartes.mobile.ui.sales.DispatchesScreen
+import com.europartes.mobile.ui.sales.PointOfSaleScreen
+import com.europartes.mobile.ui.sales.SalesHistoryScreen
+import com.europartes.mobile.ui.sales.SalesViewModel
 import com.europartes.mobile.ui.theme.EuropartesMobileTheme
 import kotlinx.coroutines.launch
 
@@ -144,6 +150,7 @@ class MainActivity : ComponentActivity() {
                             onLoadCatalogs = productsViewModel::loadCatalogs,
                             onSaveProduct = productsViewModel::save,
                             onChangeProductState = productsViewModel::changeActive,
+                            onRefreshProducts = { productsViewModel.loadProducts() },
                             onClearProductMessage = productsViewModel::clearMessage,
                             localProducts = localProducts,
                             localWorking = localProductsState.isWorking,
@@ -270,6 +277,7 @@ private fun AuthenticatedShell(
     onLoadCatalogs: () -> Unit,
     onSaveProduct: (Int?, String, String, Int?, Int?, String) -> Unit,
     onChangeProductState: (ProductDto, Boolean) -> Unit,
+    onRefreshProducts: () -> Unit,
     onClearProductMessage: () -> Unit,
     localProducts: List<ProductEntity>,
     localWorking: Boolean,
@@ -285,6 +293,10 @@ private fun AuthenticatedShell(
 ) {
     val navigation = remember(user.grupo) { navigationForRole(user.grupo) }
     val purchasingViewModel: PurchasingViewModel = viewModel()
+    val salesViewModel: SalesViewModel = viewModel()
+    DisposableEffect(user.userId) {
+        onDispose { salesViewModel.reset() }
+    }
     var destination by remember(user.userId, navigation) {
         mutableStateOf(navigation.firstOrNull()?.destination)
     }
@@ -296,6 +308,10 @@ private fun AuthenticatedShell(
         MobileDestination.LOCAL_DRAFTS -> "Borradores locales"
         MobileDestination.CATALOGS -> "Catálogos"
         MobileDestination.PURCHASING -> "Solicitudes y compras"
+        MobileDestination.CUSTOMERS -> "Clientes"
+        MobileDestination.SALES -> "Punto de venta"
+        MobileDestination.SALES_HISTORY -> "Historial de facturas"
+        MobileDestination.DISPATCHES -> "Despachos pendientes"
         null -> "Europartes"
     }
 
@@ -445,6 +461,26 @@ private fun AuthenticatedShell(
                     } else {
                         NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
                     }
+                }
+                MobileDestination.CUSTOMERS -> {
+                    if (user.grupo in SalesViewModel.CUSTOMER_ROLES) {
+                        CustomersScreen(user.grupo, user.userId, salesViewModel, Modifier.fillMaxSize().padding(padding))
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.SALES -> {
+                    if (user.grupo == SalesViewModel.VENDEDOR) {
+                        PointOfSaleScreen(user.grupo, user.userId, salesViewModel, onRefreshProducts, Modifier.fillMaxSize().padding(padding))
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.SALES_HISTORY -> {
+                    if (user.grupo in SalesViewModel.HISTORY_ROLES) {
+                        SalesHistoryScreen(user.grupo, user.userId, salesViewModel, Modifier.fillMaxSize().padding(padding))
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.DISPATCHES -> {
+                    if (user.grupo == SalesViewModel.OFICIAL_LOGISTICA) {
+                        DispatchesScreen(user.grupo, user.userId, salesViewModel, onRefreshProducts, Modifier.fillMaxSize().padding(padding))
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
                 }
                 null -> NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
             }
@@ -791,6 +827,7 @@ private fun AuthenticatedShellPreview() {
             onLoadCatalogs = {},
             onSaveProduct = { _, _, _, _, _, _ -> },
             onChangeProductState = { _, _ -> },
+            onRefreshProducts = {},
             onClearProductMessage = {},
             localProducts = emptyList(),
             localWorking = false,
