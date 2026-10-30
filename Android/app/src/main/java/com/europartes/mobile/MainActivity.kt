@@ -81,6 +81,7 @@ import com.europartes.mobile.ui.components.EuropartesTextField
 import com.europartes.mobile.ui.login.LoginViewModel
 import com.europartes.mobile.ui.catalogs.CatalogsScreen
 import com.europartes.mobile.ui.navigation.MobileDestination
+import com.europartes.mobile.ui.navigation.DASHBOARD_ROLES
 import com.europartes.mobile.ui.inventory.KardexScreen
 import com.europartes.mobile.ui.navigation.navigationForRole
 import com.europartes.mobile.ui.products.LocalProductsScreen
@@ -96,6 +97,8 @@ import com.europartes.mobile.ui.sales.SalesViewModel
 import com.europartes.mobile.ui.security.ChangeOwnPasswordScreen
 import com.europartes.mobile.ui.security.SecurityAdminScreen
 import com.europartes.mobile.ui.security.SecurityViewModel
+import com.europartes.mobile.ui.dashboard.DashboardScreen
+import com.europartes.mobile.ui.dashboard.DashboardViewModel
 import com.europartes.mobile.ui.theme.EuropartesMobileTheme
 import kotlinx.coroutines.launch
 
@@ -298,6 +301,7 @@ private fun AuthenticatedShell(
     val purchasingViewModel: PurchasingViewModel = viewModel()
     val salesViewModel: SalesViewModel = viewModel()
     val securityViewModel: SecurityViewModel = viewModel()
+    val dashboardViewModel: DashboardViewModel = viewModel()
     DisposableEffect(user.userId) {
         onDispose { salesViewModel.reset() }
     }
@@ -318,6 +322,7 @@ private fun AuthenticatedShell(
         MobileDestination.DISPATCHES -> "Despachos pendientes"
         MobileDestination.USER_ADMIN -> "Cuentas y roles"
         MobileDestination.ACCOUNT_SECURITY -> "Seguridad de cuenta"
+        MobileDestination.DASHBOARD -> "Dashboard analítico"
         null -> "Europartes"
     }
 
@@ -495,6 +500,11 @@ private fun AuthenticatedShell(
                 }
                 MobileDestination.ACCOUNT_SECURITY -> {
                     ChangeOwnPasswordScreen(user.grupo, securityViewModel, Modifier.fillMaxSize().padding(padding))
+                }
+                MobileDestination.DASHBOARD -> {
+                    if (user.grupo in DASHBOARD_ROLES) {
+                        DashboardScreen(user.grupo, Modifier.fillMaxSize().padding(padding), dashboardViewModel)
+                    } else NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
                 }
                 null -> NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
             }
