@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,34 +25,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.europartes.mobile.ui.theme.EuropartesBorder
-import com.europartes.mobile.ui.theme.EuropartesTealContainer
+
+private val CardShape = RoundedCornerShape(18.dp)
 
 @Composable
 fun EuropartesBrand(
-    eyebrow: String = "GESTIÓN EMPRESARIAL",
+    eyebrow: String = "GESTIÓN COMERCIAL",
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Surface(
-            color = EuropartesTealContainer,
-            shape = RoundedCornerShape(14.dp),
-        ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(color = MaterialTheme.colorScheme.secondary, shape = RoundedCornerShape(13.dp)) {
             Text(
                 text = "EP",
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSecondary,
             )
         }
-        Text(
-            text = eyebrow,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.secondary,
-        )
-        Text(title, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+        Text(eyebrow, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text(title, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
         Text(subtitle, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -65,6 +59,8 @@ fun EuropartesTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     enabled: Boolean = true,
     supportingText: String? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     OutlinedTextField(
         value = value,
@@ -74,17 +70,15 @@ fun EuropartesTextField(
         enabled = enabled,
         singleLine = true,
         visualTransformation = visualTransformation,
-        supportingText = {
-            val helperText = supportingText
-
-            if (helperText != null) {
-                Text(text = helperText)
-            }
-        },
-        shape = RoundedCornerShape(14.dp),
+        trailingIcon = trailingContent,
+        keyboardOptions = keyboardOptions,
+        supportingText = { supportingText?.let { Text(it) } },
+        shape = RoundedCornerShape(13.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.secondary,
-            unfocusedBorderColor = EuropartesBorder,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            cursorColor = MaterialTheme.colorScheme.primary,
         ),
     )
 }
@@ -99,25 +93,19 @@ fun EuropartesPrimaryButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(52.dp),
+        modifier = modifier.fillMaxWidth().height(54.dp),
         enabled = enabled && !isLoading,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(13.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.height(20.dp),
-                color = MaterialTheme.colorScheme.onPrimary,
-                strokeWidth = 2.dp,
-            )
+            CircularProgressIndicator(Modifier.height(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
             Spacer(Modifier.padding(horizontal = 5.dp))
             Text("Conectando…")
-        } else {
-            Text(text, style = MaterialTheme.typography.labelLarge)
-        }
+        } else Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -127,14 +115,13 @@ fun EuropartesStatusMessage(
     isError: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val container = if (isError) MaterialTheme.colorScheme.errorContainer else EuropartesTealContainer
-    val content = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val container = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+    val content = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(container, RoundedCornerShape(12.dp))
-            .border(1.dp, content.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-            .padding(14.dp),
+        modifier = modifier.fillMaxWidth()
+            .background(container, RoundedCornerShape(13.dp))
+            .border(1.dp, content.copy(alpha = 0.18f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 15.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(message, color = content, style = MaterialTheme.typography.bodyMedium)
@@ -151,17 +138,13 @@ fun EuropartesSectionCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(18.dp),
+        shape = CardShape,
         tonalElevation = 1.dp,
-        shadowElevation = 1.dp,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             if (!subtitle.isNullOrBlank()) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             content()
         }
@@ -169,17 +152,45 @@ fun EuropartesSectionCard(
 }
 
 @Composable
-fun EuropartesMetricPill(label: String, value: String) {
+fun EuropartesMetricPill(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
+        modifier = modifier,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         }
     }
+}
+
+@Composable
+fun EuropartesStateBadge(text: String, isPositive: Boolean, modifier: Modifier = Modifier) {
+    val container = if (isPositive) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.errorContainer
+    val content = if (isPositive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
+    Surface(modifier = modifier, color = container, shape = RoundedCornerShape(8.dp)) {
+        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = content)
+    }
+}
+
+@Composable
+fun EuropartesNeutralBadge(text: String, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(8.dp)) {
+        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    }
+}
+
+@Composable
+fun EuropartesOutlinedCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shape = CardShape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) { Box(Modifier.padding(16.dp)) { content() } }
 }
