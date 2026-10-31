@@ -118,7 +118,7 @@ fun CustomersScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, mo
         state.error?.let { EuropartesStatusMessage(it, true) }
         state.message?.let { EuropartesStatusMessage(it, false) }
         if (state.isLoading && !state.customersLoaded) androidx.compose.material3.CircularProgressIndicator()
-        else if (state.customers.isEmpty()) EuropartesStatusMessage(if (state.customersLoaded) "No hay clientes activos que coincidan con la búsqueda." else "Consulta clientes para comenzar.", false)
+        else if (state.customers.isEmpty() && state.error == null) EuropartesStatusMessage(if (state.customersLoaded) "No hay clientes activos que coincidan con la búsqueda." else "Consulta clientes para comenzar.", false)
         else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state.customers, key = { it.id }) { customer ->
                 CustomerCard(
@@ -253,7 +253,7 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
         if (state.isLoading && !state.pointOfSaleLoaded) androidx.compose.material3.CircularProgressIndicator()
         state.error?.let { EuropartesStatusMessage(it, true) }
         if (state.invoiceOutcomeUncertain) {
-            OutlinedButton(onClick = { confirmUncertainRetry = true }) { Text("Ya revisé el historial; habilitar un nuevo intento") }
+            OutlinedButton(onClick = { confirmUncertainRetry = true }, enabled = state.isOnline) { Text("Ya revisé el historial; habilitar un nuevo intento") }
         }
         state.message?.let { EuropartesStatusMessage(it, false) }
         OutlinedButton(onClick = { customerMenu = true }, enabled = !state.isLoading && !state.isWorking, modifier = Modifier.fillMaxWidth()) { Text(customer?.displayName ?: "Seleccionar cliente") }
@@ -294,7 +294,7 @@ fun PointOfSaleScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, 
             EuropartesMetricPill("IVA (${state.configuration?.taxPercent ?: "—"}%)", formatSalesAmount(tax.toPlainString(), displayCurrency, exchangeRate))
             Text("Total estimado: ${formatSalesAmount(totalEstimate.toPlainString(), displayCurrency, exchangeRate)}", style = MaterialTheme.typography.titleMedium)
         }
-        EuropartesPrimaryButton("Revisar y facturar", onClick = { showConfirm = true }, enabled = customer != null && state.cart.isNotEmpty() && !state.isWorking && !state.invoiceOutcomeUncertain, isLoading = state.isWorking)
+        EuropartesPrimaryButton("Revisar y facturar", onClick = { showConfirm = true }, enabled = customer != null && state.cart.isNotEmpty() && state.isOnline && !state.isWorking && !state.invoiceOutcomeUncertain, isLoading = state.isWorking)
     }
     if (showConfirm) AlertDialog(
         onDismissRequest = { if (!state.isWorking) showConfirm = false },
@@ -329,25 +329,32 @@ fun SalesHistoryScreen(role: String, sessionKey: Int, viewModel: SalesViewModel,
         viewModel.loadCurrencyConfiguration()
         viewModel.loadHistory(role)
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Historial de facturas", style = MaterialTheme.typography.headlineMedium)
-        SalesCurrencySelector(currency, rateAvailable, onCurrencyChange)
-        EuropartesSectionCard("Filtros", "Fechas en formato AAAA-MM-DD; vendedor queda limitado a sus propias ventas por Django.") {
-            FilterField("Fecha inicial", state.filters.startDate, numeric = false) { viewModel.updateFilters(state.filters.copy(startDate = it)) }
-            FilterField("Fecha final", state.filters.endDate, numeric = false) { viewModel.updateFilters(state.filters.copy(endDate = it)) }
-            FilterField("Cliente ID", state.filters.customerId) { viewModel.updateFilters(state.filters.copy(customerId = it)) }
-            FilterField("Empleado ID", state.filters.employeeId) { viewModel.updateFilters(state.filters.copy(employeeId = it)) }
-            FilterField("Producto ID", state.filters.productId) { viewModel.updateFilters(state.filters.copy(productId = it)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { viewModel.loadHistory(role) }, enabled = !state.isLoading && !state.isWorking) { Text("Consultar") }
-                OutlinedButton(onClick = { choosingFile = true }, enabled = !state.isExporting && !state.isWorking) { Text(if (state.isExporting) "Exportando…" else "Exportar Excel") }
+    LazyColumn(
+        modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item { Text("Historial de facturas", style = MaterialTheme.typography.headlineMedium) }
+        item { SalesCurrencySelector(currency, rateAvailable, onCurrencyChange) }
+        item {
+            EuropartesSectionCard("Filtros", "Fechas en formato AAAA-MM-DD; vendedor queda limitado a sus propias ventas por Django.") {
+                FilterField("Fecha inicial", state.filters.startDate, numeric = false) { viewModel.updateFilters(state.filters.copy(startDate = it)) }
+                FilterField("Fecha final", state.filters.endDate, numeric = false) { viewModel.updateFilters(state.filters.copy(endDate = it)) }
+                FilterField("Cliente ID", state.filters.customerId) { viewModel.updateFilters(state.filters.copy(customerId = it)) }
+                FilterField("Empleado ID", state.filters.employeeId) { viewModel.updateFilters(state.filters.copy(employeeId = it)) }
+                FilterField("Producto ID", state.filters.productId) { viewModel.updateFilters(state.filters.copy(productId = it)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { viewModel.loadHistory(role) }, enabled = !state.isLoading && !state.isWorking) { Text("Consultar") }
+                    OutlinedButton(onClick = { choosingFile = true }, enabled = !state.isExporting && !state.isWorking) { Text(if (state.isExporting) "Exportando…" else "Exportar Excel") }
+                }
             }
         }
-        state.error?.let { EuropartesStatusMessage(it, true) }
-        state.message?.let { EuropartesStatusMessage(it, false) }
-        if (state.isLoading && !state.historyLoaded) androidx.compose.material3.CircularProgressIndicator()
-        else if (state.history.isEmpty()) EuropartesStatusMessage("No hay facturas para mostrar con los filtros actuales.", false)
-        else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        state.error?.let { message -> item { EuropartesStatusMessage(message, true) } }
+        state.message?.let { message -> item { EuropartesStatusMessage(message, false) } }
+        if (state.isLoading && !state.historyLoaded) {
+            item { androidx.compose.material3.CircularProgressIndicator() }
+        } else if (state.history.isEmpty()) {
+            item { EuropartesStatusMessage("No hay facturas para mostrar con los filtros actuales.", false) }
+        } else {
             items(state.history, key = { it.id }) { invoice ->
                 EuropartesOutlinedCard {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {

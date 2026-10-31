@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.europartes.mobile.data.remote.*
 import com.europartes.mobile.data.repository.CatalogItem
+import com.europartes.mobile.ui.components.EuropartesStatusMessage
 
 private enum class PurchasingTab(val title: String) { REQUESTS("Solicitudes"), PURCHASES("Compras"), HISTORY("Historial") }
 private data class DraftLine(val productId: Int? = null, val quantity: String = "1", val cost: String = "", val observations: String = "")
@@ -66,6 +67,7 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
             }
         }
         state.message?.let { Text(it, color = if (state.messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
+        state.offlineNotice?.let { EuropartesStatusMessage(it, false) }
         exportMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 6.dp)) }
         detailError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 6.dp)) }
         state.error?.let { message ->

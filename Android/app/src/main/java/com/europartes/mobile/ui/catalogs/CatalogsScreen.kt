@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -60,12 +61,15 @@ import com.europartes.mobile.ui.navigation.canManageCatalog
 import com.europartes.mobile.ui.navigation.canReadCatalog
 
 @Composable
-fun CatalogsScreen(role: String, sessionKey: Int, modifier: Modifier = Modifier, viewModel: CatalogsViewModel = viewModel()) {
+fun CatalogsScreen(role: String, sessionKey: Int, modifier: Modifier = Modifier, viewModel: CatalogsViewModel = viewModel(key = "catalogs_user_$sessionKey")) {
     val state by viewModel.state.collectAsState()
     val available = CatalogKind.entries.filter { canReadCatalog(it, role) }
     LaunchedEffect(role, sessionKey) {
         viewModel.reset()
         available.firstOrNull()?.let { viewModel.select(it, role) }
+    }
+    DisposableEffect(sessionKey) {
+        onDispose { viewModel.reset() }
     }
     if (available.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

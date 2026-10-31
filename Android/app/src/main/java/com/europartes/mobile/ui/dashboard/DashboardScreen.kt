@@ -73,7 +73,7 @@ fun DashboardScreen(
     val displayCurrency = if (currency == "USD" && !rateAvailable) "NIO" else currency
 
     LaunchedEffect(role) {
-        viewModel.load(role)
+        viewModel.load(role, force = true)
         viewModel.loadCurrencyConfiguration()
     }
 
@@ -186,6 +186,13 @@ private fun DashboardReportCard(report: DashboardReportData, currency: String, e
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(report.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (report.isOfflineSnapshot && report.cachedAtEpochMs != null) {
+                Text(
+                    "Copia local · consultado ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(report.cachedAtEpochMs))}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             when {
                 report.error != null -> DashboardNotice(report.error, isError = true)
                 report.payload == null || report.payload.isJsonNull -> DashboardNotice("El servidor no devolvió datos para este informe.", isError = false)

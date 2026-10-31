@@ -60,9 +60,9 @@ class KardexRepository(private val api: InventoryApi) {
                     else -> detail ?: "No se pudo $operation (HTTP ${error.code()})."
                 }
                 Result.failure(IllegalStateException(message, error))
-            } catch (_: IOException) {
+            } catch (error: IOException) {
                 Result.failure(
-                    IllegalStateException("No se pudo conectar con Azure. No se confirmó la operación."),
+                    IllegalStateException("No se pudo conectar con Azure para $operation.", error),
                 )
             } catch (error: Exception) {
                 Result.failure(IllegalStateException(error.message ?: "No se pudo $operation.", error))

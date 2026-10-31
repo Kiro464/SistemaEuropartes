@@ -18,6 +18,11 @@ data class DashboardReportData(
     val title: String,
     val payload: JsonElement? = null,
     val error: String? = null,
+    val queryKey: String = "all",
+    val transportFailure: Boolean = false,
+    val authorizationDenied: Boolean = false,
+    val isOfflineSnapshot: Boolean = false,
+    val cachedAtEpochMs: Long? = null,
 )
 
 data class DashboardReportSpec(
@@ -47,10 +52,18 @@ class DashboardRepository(
                     if (spec.includeRange) put("rango", range)
                     putAll(spec.extraParameters)
                 }
-                request(spec) { api.getReport(spec.endpoint, parameters) }
+                request(spec, canonicalQuery(parameters)) { api.getReport(spec.endpoint, parameters) }
             }
         } + async { loadOperationalCriticalStock() }).awaitAll()
     }
+
+    fun reportPlaceholders(range: String): List<DashboardReportData> = reportSpecs.map { spec ->
+        val parameters = buildMap {
+            if (spec.includeRange) put("rango", range)
+            putAll(spec.extraParameters)
+        }
+        DashboardReportData(spec.id, spec.title, error = "No hay una copia local de este informe para el periodo seleccionado.", queryKey = canonicalQuery(parameters))
+    } + DashboardReportData("stock-critico-operacional", "Stock crítico actual · sistema operacional", error = "No hay una copia local de este informe.", queryKey = "stock_actual<=5")
 
     suspend fun executeEtl(): JsonElement = api.executeEtl(emptyMap())
 
@@ -65,7 +78,7 @@ class DashboardRepository(
             endpoint = "catalogos/producto/",
             includeRange = false,
         )
-        return request(spec) {
+        return request(spec, "stock_actual<=5") {
             val response = api.getOperationalProducts()
             val products = when {
                 response.isJsonArray -> response.asJsonArray
@@ -91,14 +104,25 @@ class DashboardRepository(
 
     private suspend fun request(
         spec: DashboardReportSpec,
+        queryKey: String,
         call: suspend () -> JsonElement,
     ): DashboardReportData = try {
-        DashboardReportData(spec.id, spec.title, payload = call())
+        DashboardReportData(spec.id, spec.title, payload = call(), queryKey = queryKey)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
-        DashboardReportData(spec.id, spec.title, error = readableError(error))
+        DashboardReportData(
+            spec.id,
+            spec.title,
+            error = readableError(error),
+            queryKey = queryKey,
+            transportFailure = error is IOException,
+            authorizationDenied = error is HttpException && error.code() in setOf(401, 403),
+        )
     }
+
+    private fun canonicalQuery(parameters: Map<String, String>): String =
+        parameters.toSortedMap().entries.joinToString("&") { (key, value) -> "$key=$value" }.ifBlank { "all" }
 
     private fun readableError(error: Exception): String = when (error) {
         is HttpException -> when (error.code()) {

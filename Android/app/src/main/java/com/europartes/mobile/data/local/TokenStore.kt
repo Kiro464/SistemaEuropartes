@@ -3,6 +3,8 @@ package com.europartes.mobile.data.local
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import android.util.Base64
+import com.google.gson.JsonParser
 
 /** Stores JWTs encrypted at rest using an Android Keystore-backed master key. */
 class TokenStore(context: Context) {
@@ -29,6 +31,18 @@ class TokenStore(context: Context) {
     fun accessToken(): String? = preferences.getString(KEY_ACCESS, null)
 
     fun refreshToken(): String? = preferences.getString(KEY_REFRESH, null)
+
+    /**
+     * Stable local partition key only. The claim is not validated here and MUST NOT grant
+     * authorization; remote operations still require Django to validate the current session.
+     */
+    fun userIdForLocalPartition(): Int? {
+        val segment = accessToken()?.split('.')?.getOrNull(1) ?: return null
+        return runCatching {
+            val payload = String(Base64.decode(segment, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
+            JsonParser.parseString(payload).asJsonObject.get("user_id")?.asInt?.takeIf { it > 0 }
+        }.getOrNull()
+    }
 
     fun clear() {
         preferences.edit().clear().apply()

@@ -111,8 +111,8 @@ class CatalogRepository(private val api: CatalogApi) {
                 else -> "No se pudo $operation (HTTP ${error.code()})."
             }
             Result.failure(IllegalStateException(message, error))
-        } catch (_: IOException) {
-            Result.failure(IllegalStateException("No se pudo conectar con Azure. Comprueba la conexión; no se confirmó ningún cambio remoto."))
+        } catch (error: IOException) {
+            Result.failure(IllegalStateException("No se pudo conectar con Azure. Comprueba la conexión; no se confirmó ningún cambio remoto.", error))
         } catch (error: Exception) {
             Result.failure(IllegalStateException(error.message ?: "Ocurrió un error al $operation."))
         }

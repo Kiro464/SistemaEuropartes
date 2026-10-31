@@ -1,6 +1,7 @@
 package com.europartes.mobile.data.local
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -10,7 +11,7 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "products",
-    indices = [Index(value = ["remoteId"], unique = true)],
+    indices = [Index(value = ["remoteId", "ownerUserId"], unique = true)],
 )
 data class ProductEntity(
     @PrimaryKey(autoGenerate = true) val localId: Long = 0,
@@ -27,9 +28,11 @@ data class ProductEntity(
     val proveedorNombre: String? = null,
     val fechaRegistro: String? = null,
     val estado: Boolean? = true,
-    /** LOCAL_ONLY, REMOTE_CACHED or PENDING_SYNC. PENDING_SYNC is reserved for a later phase. */
+    /** LOCAL_ONLY draft, server-confirmed REMOTE_CACHED row, or queued CREATE_PRODUCT. */
     val syncState: String = LOCAL_ONLY,
     val updatedAtEpochMs: Long = System.currentTimeMillis(),
+    /** Owner from the authenticated user_id claim; account-scoped remote snapshots use the same owner. */
+    @ColumnInfo(defaultValue = "0") val ownerUserId: Int = 0,
 ) {
     companion object {
         const val LOCAL_ONLY = "LOCAL_ONLY"

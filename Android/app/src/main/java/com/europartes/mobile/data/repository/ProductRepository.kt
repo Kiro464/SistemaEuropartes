@@ -55,8 +55,8 @@ class ProductRepository(private val api: ProductApi) {
                 else -> "No se pudo $operation (HTTP ${e.code()})."
             }
             Result.failure(IllegalStateException(message, e))
-        } catch (_: IOException) {
-            Result.failure(IllegalStateException("No se pudo conectar con Azure. Comprueba la conexión; no se confirmó ningún cambio remoto."))
+        } catch (error: IOException) {
+            Result.failure(IllegalStateException("No se recibió confirmación del servidor. Comprueba el catálogo antes de volver a enviar para evitar duplicados.", error))
         } catch (e: Exception) {
             Result.failure(IllegalStateException(e.message ?: "Ocurrió un error al $operation."))
         }

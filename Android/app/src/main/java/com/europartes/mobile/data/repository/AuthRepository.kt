@@ -188,10 +188,10 @@ class AuthRepository(
                     IllegalStateException("No se pudo comprobar la sesión (HTTP ${e.code()}). Puedes volver a intentarlo.")
                 )
             }
-        } catch (_: IOException) {
+        } catch (e: IOException) {
             // Connectivity does not prove that the stored refresh token is invalid.
             Result.failure(
-                IllegalStateException("No se pudo conectar para comprobar la sesión. Puedes volver a intentarlo.")
+                IllegalStateException("No se pudo conectar para comprobar la sesión. Puedes volver a intentarlo.", e)
             )
         } catch (_: Exception) {
             Result.failure(
@@ -202,6 +202,10 @@ class AuthRepository(
 
     fun hasStoredSession(): Boolean =
         !tokenStore.accessToken().isNullOrBlank() || !tokenStore.refreshToken().isNullOrBlank()
+
+    /** Identity for local, read-only recovery only; never considered proof for remote authorization. */
+    fun offlineReadOnlyUser(): AuthenticatedUser? = tokenStore.accessToken()
+        ?.let(::authenticatedUserFromUnexpiredAccessToken)
 
     fun logout() = tokenStore.clear()
 }
@@ -224,6 +228,22 @@ internal fun authenticatedUserFromAccessToken(accessToken: String): Authenticate
             apellidos = claims.get("apellidos")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
             grupo = group,
         )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+internal fun authenticatedUserFromUnexpiredAccessToken(
+    accessToken: String,
+    nowEpochSeconds: Long = System.currentTimeMillis() / 1_000L,
+): AuthenticatedUser? {
+    return try {
+        val payloadSegment = accessToken.split('.').getOrNull(1) ?: return null
+        val payload = String(Base64.getUrlDecoder().decode(payloadSegment), Charsets.UTF_8)
+        val claims = JsonParser.parseString(payload).asJsonObject
+        val expiry = claims.get("exp")?.asLong ?: return null
+        if (expiry <= nowEpochSeconds) return null
+        authenticatedUserFromAccessToken(accessToken)
     } catch (_: Exception) {
         null
     }

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.DatabaseProvider
 import com.europartes.mobile.data.local.ProductEntity
+import com.europartes.mobile.data.local.NetworkAvailability
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.remote.ApiClient
 import com.europartes.mobile.data.remote.CatalogOptionDto
@@ -12,10 +13,14 @@ import com.europartes.mobile.data.remote.ProductDto
 import com.europartes.mobile.data.remote.ProductWriteRequest
 import com.europartes.mobile.data.repository.LocalProductRepository
 import com.europartes.mobile.data.repository.ProductRepository
+import com.europartes.mobile.data.repository.OfflineCatalogRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import retrofit2.HttpException
+import java.io.IOException
 
  data class ProductsUiState(
     val isLoading: Boolean = false,
@@ -28,40 +33,138 @@ import kotlinx.coroutines.launch
     val messageIsError: Boolean = false,
     val hasLoaded: Boolean = false,
     val includeInactive: Boolean = false,
+    val isShowingOfflineCache: Boolean = false,
+    val lastSuccessfulSyncAtEpochMs: Long? = null,
+    val isOnline: Boolean = true,
+    val canUseOfflineCache: Boolean = true,
 )
 
 class ProductsViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = ProductRepository(ApiClient.productApi(TokenStore(application)))
+    private val tokenStore = TokenStore(application)
+    private val repository = ProductRepository(ApiClient.productApi(tokenStore))
     private val localRepository = LocalProductRepository(DatabaseProvider.get(application).productDao())
+    private val database = DatabaseProvider.get(application)
+    private val localCatalogs = OfflineCatalogRepository(database.offlineCatalogDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
     private val _uiState = MutableStateFlow(ProductsUiState())
     val uiState: StateFlow<ProductsUiState> = _uiState.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            var wasOnline = NetworkAvailability.hasValidatedInternet(application)
+            _uiState.value = _uiState.value.copy(isOnline = wasOnline)
+            NetworkAvailability.observe(application).collect { isOnline ->
+                val previous = wasOnline
+                wasOnline = isOnline
+                val current = _uiState.value
+                _uiState.value = current.copy(isOnline = isOnline)
+                if (!isOnline && current.hasLoaded && current.canUseOfflineCache && !current.isLoading) {
+                    val snapshot = runCatching { localRepository.cachedRemoteSnapshot(current.includeInactive, tokenStore.userIdForLocalPartition()) }.getOrNull()
+                    if (snapshot != null) {
+                        _uiState.value = _uiState.value.copy(
+                            products = snapshot.first.mapNotNull { it.toProductDto() },
+                            isShowingOfflineCache = true,
+                            lastSuccessfulSyncAtEpochMs = snapshot.second,
+                            message = "Sin conexión: se muestra la última consulta guardada. Los datos pueden estar desactualizados.",
+                            messageIsError = false,
+                        )
+                    }
+                }
+                if (!previous && isOnline && current.hasLoaded && current.isShowingOfflineCache && !current.isLoading) {
+                    loadProducts(current.includeInactive)
+                }
+            }
+        }
+    }
+
     fun loadProducts(includeInactive: Boolean = false) {
         if (_uiState.value.isLoading || _uiState.value.isWorking) return
+        val requestOwner = tokenStore.userIdForLocalPartition()
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null, message = null, isShowingOfflineCache = false)
             repository.getProducts(includeInactive = includeInactive).fold(
                 onSuccess = { products ->
-                    runCatching { localRepository.cacheRemote(products) }
-                    _uiState.value = _uiState.value.copy(isLoading = false, products = products, errorMessage = null, hasLoaded = true, includeInactive = includeInactive)
+                    if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    runCatching { localRepository.cacheRemote(products, requestOwner, includeInactive) }
+                    val timestamp = runCatching { localRepository.cachedRemoteSnapshot(includeInactive, requestOwner)?.second }.getOrNull()
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false, products = products, errorMessage = null, hasLoaded = true,
+                        includeInactive = includeInactive, isShowingOfflineCache = false,
+                        lastSuccessfulSyncAtEpochMs = timestamp ?: System.currentTimeMillis(),
+                        isOnline = true,
+                        canUseOfflineCache = true,
+                    )
                 },
-                onFailure = { error -> _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = error.message ?: "No se pudieron cargar los productos.", hasLoaded = true) },
+                onFailure = { error ->
+                    if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    val httpStatus = generateSequence(error as Throwable?) { it.cause }
+                        .filterIsInstance<HttpException>()
+                        .firstOrNull()?.code()
+                    val authorizationDenied = httpStatus == 401 || httpStatus == 403
+                    if (authorizationDenied) runCatching { localRepository.clearRemoteCache(tokenStore.userIdForLocalPartition()) }
+                    val isConnectivityFailure = !authorizationDenied && error.isTransportFailure()
+                    val snapshot = if (isConnectivityFailure && _uiState.value.canUseOfflineCache) {
+                        runCatching { localRepository.cachedRemoteSnapshot(includeInactive, tokenStore.userIdForLocalPartition()) }.getOrNull()
+                    } else null
+                    val cached = snapshot?.first.orEmpty().mapNotNull { it.toProductDto() }
+                    if (snapshot != null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false, products = cached, errorMessage = null, hasLoaded = true,
+                            includeInactive = includeInactive, isShowingOfflineCache = true,
+                            isOnline = false,
+                            canUseOfflineCache = true,
+                            lastSuccessfulSyncAtEpochMs = snapshot.second,
+                            message = "Sin conexión: se muestra la última consulta guardada. Los datos pueden estar desactualizados.",
+                            messageIsError = false,
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            products = if (authorizationDenied) emptyList() else _uiState.value.products,
+                            errorMessage = if (isConnectivityFailure) "Sin conexión y todavía no hay una copia descargada de productos para esta cuenta." else error.message ?: "No se pudieron cargar los productos.",
+                            hasLoaded = true, includeInactive = includeInactive, isShowingOfflineCache = false,
+                            isOnline = !isConnectivityFailure,
+                            canUseOfflineCache = !authorizationDenied,
+                        )
+                    }
+                },
             )
         }
     }
 
-    fun loadCatalogs() {
+    fun loadCatalogs(role: String) {
         if (_uiState.value.isWorking) return
         viewModelScope.launch {
             val brands = repository.getBrands()
             val suppliers = repository.getSuppliers()
-            val error = brands.exceptionOrNull() ?: suppliers.exceptionOrNull()
+            if (brands.exceptionOrNull().isAuthorizationFailure()) localCatalogs.invalidate(role, "product-form:brands")
+            if (suppliers.exceptionOrNull().isAuthorizationFailure()) localCatalogs.invalidate(role, "product-form:suppliers")
+            val brandError = brands.exceptionOrNull()
+            val supplierError = suppliers.exceptionOrNull()
+            val brandSnapshot = brands.getOrNull()?.let { rows -> rows to localCatalogs.saveOptions(role, "product-form:brands", rows) }
+                ?: if (brandError.isTransportFailure() && !brandError.isAuthorizationFailure()) runCatching { localCatalogs.options(role, "product-form:brands") }.getOrNull()?.let { it.first to it.second } else null
+            val supplierSnapshot = suppliers.getOrNull()?.let { rows -> rows to localCatalogs.saveOptions(role, "product-form:suppliers", rows) }
+                ?: if (supplierError.isTransportFailure() && !supplierError.isAuthorizationFailure()) runCatching { localCatalogs.options(role, "product-form:suppliers") }.getOrNull()?.let { it.first to it.second } else null
+            val cachedBrands = brandSnapshot?.first
+            val cachedSuppliers = supplierSnapshot?.first
+            val offline = (brands.isFailure && cachedBrands != null) || (suppliers.isFailure && cachedSuppliers != null)
+            val error = if (cachedBrands == null || cachedSuppliers == null) brands.exceptionOrNull() ?: suppliers.exceptionOrNull() else null
+            val staleDates = buildList {
+                if (brands.isFailure && cachedBrands != null) brandSnapshot?.second?.let { add("marcas ${formattedDate(it)}") }
+                if (suppliers.isFailure && cachedSuppliers != null) supplierSnapshot?.second?.let { add("proveedores ${formattedDate(it)}") }
+            }
             _uiState.value = _uiState.value.copy(
-                brands = brands.getOrNull().orEmpty(), suppliers = suppliers.getOrNull().orEmpty(),
-                message = error?.message, messageIsError = error != null,
+                brands = cachedBrands.orEmpty(), suppliers = cachedSuppliers.orEmpty(),
+                message = if (offline) "Sin conexión · opciones guardadas: ${staleDates.joinToString("; ").ifBlank { "fecha no disponible" }}. Django revalidará las referencias al guardar." else error?.message,
+                messageIsError = error != null && !offline,
             )
         }
     }
+
+    private fun Throwable?.isTransportFailure(): Boolean = this != null && generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable?.isAuthorizationFailure(): Boolean = this != null && generateSequence(this) { it.cause }
+        .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
+
+    private fun formattedDate(epochMs: Long): String = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(epochMs))
 
     fun save(productId: Int?, nombre: String, descripcion: String, marca: Int?, proveedor: Int?, precio: String) {
         if (_uiState.value.isWorking) return
@@ -80,32 +183,88 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
         }
         if (invalid != null) { _uiState.value = state.copy(message = invalid, messageIsError = true); return }
         val request = ProductWriteRequest(name, desc, marca!!, proveedor!!, parsed!!.setScale(2).toPlainString(), true)
-        viewModelScope.launch {
+        if (!NetworkAvailability.hasValidatedInternet(getApplication<Application>())) {
+            if (productId != null) {
+                _uiState.value = state.copy(message = "Editar un producto existente requiere conexión para validar el stock y los cambios del servidor.", messageIsError = true)
+                return
+            }
             _uiState.value = _uiState.value.copy(isWorking = true, message = null, messageIsError = false)
+            viewModelScope.launch {
+                localAccountRepository().queueProductCreate(
+                    request,
+                    state.brands.firstOrNull { it.id == marca }?.nombre,
+                    state.suppliers.firstOrNull { it.id == proveedor }?.nombre,
+                ).fold(
+                    onSuccess = {
+                        _uiState.value = _uiState.value.copy(
+                            isWorking = false,
+                            message = "Producto guardado localmente como pendiente de envío. Aún no existe en el servidor.",
+                            messageIsError = false,
+                        )
+                    },
+                    onFailure = { error ->
+                        _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar la operación local.", messageIsError = true)
+                    },
+                )
+            }
+            return
+        }
+        _uiState.value = _uiState.value.copy(isWorking = true, message = null, messageIsError = false)
+        val requestOwner = tokenStore.userIdForLocalPartition()
+        viewModelScope.launch {
             val result = if (productId == null) repository.create(request) else repository.update(productId, request)
             result.fold(
                 onSuccess = { saved ->
-                    runCatching { localRepository.cacheConfirmedRemote(saved) }
+                    if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    runCatching { localRepository.cacheConfirmedRemote(saved, requestOwner) }
                     val refreshed = repository.getProducts(includeInactive = _uiState.value.includeInactive)
-                    if (refreshed.isSuccess) runCatching { localRepository.cacheRemote(refreshed.getOrThrow()) }
+                    if (refreshed.isSuccess && tokenStore.userIdForLocalPartition() == requestOwner) runCatching { localRepository.cacheRemote(refreshed.getOrThrow(), requestOwner, _uiState.value.includeInactive) }
                     _uiState.value = _uiState.value.copy(isWorking = false, products = refreshed.getOrNull() ?: _uiState.value.products.let { current -> if (saved.estado == true) (current.filterNot { it.id == saved.id } + saved) else current.filterNot { it.id == saved.id } }, errorMessage = refreshed.exceptionOrNull()?.message, hasLoaded = true, message = if (productId == null) "Producto creado en el servidor." else "Producto actualizado en el servidor.", messageIsError = false)
                 },
-                onFailure = { error -> _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar el producto.", messageIsError = true) },
+                onFailure = { error ->
+                    if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    val httpStatus = (error.cause as? HttpException)?.code()
+                    val outcomeMayBeUnknown = httpStatus == null || httpStatus >= 500
+                    val uncertaintyMessage = "No se recibió confirmación. Comprueba el catálogo del servidor antes de volver a enviar la operación."
+                    val recordedForReview = outcomeMayBeUnknown && runCatching {
+                        val accountRepository = localAccountRepository()
+                        if (productId == null) {
+                            accountRepository.queueProductCreate(
+                                request,
+                                state.brands.firstOrNull { it.id == marca }?.nombre,
+                                state.suppliers.firstOrNull { it.id == proveedor }?.nombre,
+                                initialState = com.europartes.mobile.data.local.SyncOperationEntity.REQUIRES_REVIEW,
+                                initialError = uncertaintyMessage,
+                            ).getOrThrow()
+                        } else {
+                            accountRepository.recordUncertainUpdate(productId, request, uncertaintyMessage).getOrThrow()
+                        }
+                    }.isSuccess
+                    _uiState.value = _uiState.value.copy(
+                        isWorking = false,
+                        message = if (recordedForReview) "El servidor no confirmó el resultado. La operación quedó en revisión y no se reenviará automáticamente; consulta el catálogo antes de volver a intentarla." else error.message ?: "No se pudo guardar el producto.",
+                        messageIsError = true,
+                    )
+                },
             )
         }
     }
 
     fun changeActive(product: ProductDto, active: Boolean) {
         if (_uiState.value.isWorking) return
+        val requestOwner = tokenStore.userIdForLocalPartition()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isWorking = true, message = null)
             val result = if (active) repository.setActive(product.id, true).map { Unit } else repository.deactivate(product.id)
             result.fold(
                 onSuccess = {
-                    if (active) repository.getProduct(product.id).getOrNull()?.let { runCatching { localRepository.cacheConfirmedRemote(it) } }
-                    else runCatching { localRepository.removeRemoteCache(product.id) }
+                    if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    if (active) repository.getProduct(product.id).getOrNull()?.let {
+                        if (tokenStore.userIdForLocalPartition() == requestOwner) runCatching { localRepository.cacheConfirmedRemote(it, requestOwner) }
+                    }
+                    else runCatching { localRepository.removeRemoteCache(product.id, requestOwner) }
                     val refreshed = repository.getProducts(includeInactive = _uiState.value.includeInactive)
-                    if (refreshed.isSuccess) runCatching { localRepository.cacheRemote(refreshed.getOrThrow()) }
+                    if (refreshed.isSuccess && tokenStore.userIdForLocalPartition() == requestOwner) runCatching { localRepository.cacheRemote(refreshed.getOrThrow(), requestOwner, _uiState.value.includeInactive) }
                     val all = refreshed.getOrNull()
                     _uiState.value = _uiState.value.copy(
                         isWorking = false,
@@ -116,11 +275,25 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                         messageIsError = false,
                     )
                 },
-                onFailure = { error -> _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo cambiar el estado.", messageIsError = true) },
+                onFailure = { error -> if (tokenStore.userIdForLocalPartition() == requestOwner) _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo cambiar el estado.", messageIsError = true) },
             )
         }
     }
 
     fun clearMessage() { _uiState.value = _uiState.value.copy(message = null, messageIsError = false) }
-    fun reset() { _uiState.value = ProductsUiState() }
+    fun reset() { _uiState.value = ProductsUiState(isOnline = NetworkAvailability.hasValidatedInternet(getApplication<Application>())) }
+
+    private fun localAccountRepository(): LocalProductRepository = LocalProductRepository(
+        DatabaseProvider.get(getApplication<Application>()).productDao(),
+        tokenStore.userIdForLocalPartition(),
+    )
+
+    private fun ProductEntity.toProductDto(): ProductDto? = remoteId?.let { id ->
+        ProductDto(
+            id = id, nombre = nombre, marca = marca, marcaNombre = marcaNombre,
+            descripcion = descripcion, precioUnitario = precioUnitario, stockActual = stockActual,
+            stockReservado = stockReservado, stockDisponible = stockDisponible, proveedor = proveedor,
+            proveedorNombre = proveedorNombre, fechaRegistro = fechaRegistro, estado = estado,
+        )
+    }
 }

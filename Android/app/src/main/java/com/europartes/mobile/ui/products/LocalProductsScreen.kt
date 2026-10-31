@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.europartes.mobile.data.local.ProductEntity
+import com.europartes.mobile.data.local.SyncOperationEntity
 import com.europartes.mobile.ui.components.EuropartesMetricPill
 import com.europartes.mobile.ui.components.EuropartesNeutralBadge
 import com.europartes.mobile.ui.components.EuropartesOutlinedCard
@@ -56,19 +57,28 @@ fun LocalProductsScreen(
     onDelete: (ProductEntity) -> Unit,
     onClearMessage: () -> Unit,
     modifier: Modifier = Modifier,
+    syncOperations: List<SyncOperationEntity> = emptyList(),
+    onSyncPending: () -> Unit = {},
+    onDiscardSyncOperation: (SyncOperationEntity) -> Unit = {},
+    unclaimedLegacyDraftCount: Int = 0,
+    onClaimLegacyDrafts: () -> Unit = {},
+    onBackToProducts: () -> Unit = {},
 ) {
     var showForm by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ProductEntity?>(null) }
     var pendingDelete by remember { mutableStateOf<ProductEntity?>(null) }
+    var pendingDiscard by remember { mutableStateOf<SyncOperationEntity?>(null) }
+    var confirmLegacyClaim by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Borradores", style = MaterialTheme.typography.headlineMedium)
+                Text("Productos en este dispositivo", style = MaterialTheme.typography.headlineMedium)
                 Text("Productos guardados en este dispositivo", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             EuropartesMetricPill("Total", products.size.toString())
         }
+        TextButton(onClick = onBackToProducts, enabled = !isWorking) { Text("Volver al catálogo") }
         Spacer(Modifier.height(12.dp))
         EuropartesOutlinedCard {
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -77,14 +87,74 @@ fun LocalProductsScreen(
                     Text("Solo en este dispositivo", style = MaterialTheme.typography.titleSmall)
                 }
                 Text(
-                    "Los borradores se guardan en Room. No se envían a Django ni se consideran sincronizados.",
+                    "Los registros locales se guardan en Room. Una creación pendiente no se considera producto confirmado hasta recibir respuesta de Django.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("REMOTE_CACHED = copia del servidor  ·  PENDING_SYNC = reservado para una fase futura", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Las altas pendientes se intentan al abrir Productos y al recuperar conectividad mientras la app está activa. Un resultado incierto no se reenvía automáticamente.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (syncOperations.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            EuropartesOutlinedCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Sincronización de productos", style = MaterialTheme.typography.titleSmall)
+                    syncOperations.forEach { operation ->
+                        Text(
+                            if (operation.operationType == SyncOperationEntity.CREATE_PRODUCT) "Alta de producto" else "Edición de producto",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        val status = when (operation.state) {
+                            SyncOperationEntity.PENDING -> "Pendiente · aún no enviado"
+                            SyncOperationEntity.IN_FLIGHT -> "Envío en curso"
+                            SyncOperationEntity.REQUIRES_REVIEW -> "Resultado incierto · requiere verificación en línea"
+                            SyncOperationEntity.BLOCKED_AUTH -> "Bloqueado por sesión o permiso · revisión manual"
+                            SyncOperationEntity.CONFLICT -> "Conflicto con el servidor · requiere revisión"
+                            SyncOperationEntity.REJECTED -> "Rechazado por el servidor"
+                            else -> operation.state
+                        }
+                        Text(status, style = MaterialTheme.typography.bodySmall)
+                        operation.lastError?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        if (operation.state != SyncOperationEntity.IN_FLIGHT) {
+                            TextButton(onClick = { pendingDiscard = operation }, enabled = !isWorking) {
+                                Text("Descartar operación local")
+                            }
+                        }
+                    }
+                    if (syncOperations.any { it.state == SyncOperationEntity.PENDING }) {
+                        EuropartesPrimaryButton(
+                            text = "Intentar sincronización ahora",
+                            onClick = onSyncPending,
+                            enabled = !isWorking,
+                        )
+                    }
+                    Text(
+                        "Si se pierde la respuesta del servidor, la operación no se reenvía automáticamente para evitar duplicados.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
+        if (unclaimedLegacyDraftCount > 0) {
+            EuropartesOutlinedCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Borradores heredados sin propietario", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "$unclaimedLegacyDraftCount registros se conservaron de una versión anterior y aún no están asociados a una cuenta. No se muestran en la lista para evitar exponerlos a otra cuenta.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = { confirmLegacyClaim = true }, enabled = !isWorking) {
+                        Text("Asociar a esta cuenta")
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Button(
                 onClick = { editing = null; showForm = true },
@@ -178,6 +248,34 @@ fun LocalProductsScreen(
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancelar") }
             },
+        )
+    }
+
+    pendingDiscard?.let { operation ->
+        AlertDialog(
+            onDismissRequest = { if (!isWorking) pendingDiscard = null },
+            title = { Text("Descartar operación local") },
+            text = { Text("Se eliminará la operación y su registro local de este dispositivo. Si su resultado remoto era incierto, verifica primero el catálogo del servidor.") },
+            confirmButton = {
+                TextButton(enabled = !isWorking, onClick = { onDiscardSyncOperation(operation); pendingDiscard = null }) {
+                    Text("Descartar")
+                }
+            },
+            dismissButton = { TextButton(onClick = { pendingDiscard = null }) { Text("Cancelar") } },
+        )
+    }
+
+    if (confirmLegacyClaim) {
+        AlertDialog(
+            onDismissRequest = { if (!isWorking) confirmLegacyClaim = false },
+            title = { Text("Asociar borradores heredados") },
+            text = { Text("Los $unclaimedLegacyDraftCount borradores sin propietario se asignarán a la cuenta autenticada actual. Esta acción es local y no se envía a Django.") },
+            confirmButton = {
+                TextButton(enabled = !isWorking, onClick = { onClaimLegacyDrafts(); confirmLegacyClaim = false }) {
+                    Text("Asociar")
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmLegacyClaim = false }) { Text("Cancelar") } },
         )
     }
 

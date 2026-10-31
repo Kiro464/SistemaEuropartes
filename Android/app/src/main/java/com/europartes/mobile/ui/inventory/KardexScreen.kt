@@ -220,7 +220,6 @@ fun KardexScreen(
                 TextButton(onClick = viewModel::clearMessage) { Text("Cerrar mensaje") }
             }
         }
-
         item {
             EuropartesSectionCard(title = "Resultados", subtitle = "${filtered.size} movimientos") {
                 FilterField(

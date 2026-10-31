@@ -6,6 +6,9 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.TokenStore
+import com.europartes.mobile.data.local.DatabaseProvider
+import com.europartes.mobile.data.repository.LocalProductRepository
+import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
 import com.europartes.mobile.data.remote.ApiClient
 import com.europartes.mobile.data.remote.InventoryMovementDto
 import com.europartes.mobile.data.remote.ProductDto
@@ -20,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -35,12 +39,19 @@ data class KardexUiState(
     val errorMessage: String? = null,
     val message: String? = null,
     val messageIsError: Boolean = false,
+    val offlineNotice: String? = null,
 )
 
 class KardexViewModel(application: Application) : AndroidViewModel(application) {
     private val tokenStore = TokenStore(application)
+    private val database = DatabaseProvider.get(application)
     private val repository = KardexRepository(ApiClient.inventoryApi(tokenStore))
     private val productRepository = ProductRepository(ApiClient.productApi(tokenStore))
+    private val localProducts = LocalProductRepository(database.productDao())
+    private val offlineStore = OfflineModuleSnapshotStore(
+        database.offlineModuleSnapshotDao(),
+        ownerUserId = { tokenStore.userIdForLocalPartition() },
+    )
     private val mutableState = MutableStateFlow(KardexUiState())
     val state = mutableState.asStateFlow()
     private var loadJob: Job? = null
@@ -64,30 +75,44 @@ class KardexViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         loadJob?.cancel()
-        mutableState.value = current.copy(isLoading = true, errorMessage = null, message = null)
+        mutableState.value = current.copy(isLoading = true, errorMessage = null, message = null, offlineNotice = null)
         loadJob = viewModelScope.launch {
             if (!current.productsLoaded) {
                 val productsResult = productRepository.getProducts(includeInactive = true)
+                val owner = tokenStore.userIdForLocalPartition()
+                val cached = if (productsResult.isSuccess) {
+                    runCatching { localProducts.cacheRemote(productsResult.getOrThrow(), owner, includeInactive = true) }
+                    null
+                } else if (productsResult.exceptionOrNull()?.isTransportFailure() == true && productsResult.exceptionOrNull()?.isAuthorizationFailure() != true) {
+                    runCatching { localProducts.cachedRemoteSnapshot(true, owner) }.getOrNull()
+                } else null
+                if (productsResult.exceptionOrNull()?.isAuthorizationFailure() == true) runCatching { localProducts.clearRemoteCache(owner) }
                 mutableState.value = mutableState.value.copy(
-                    products = productsResult.getOrNull().orEmpty(),
+                    products = productsResult.getOrNull() ?: cached?.first.orEmpty().mapNotNull { it.asProductDto() },
                     productsLoaded = true,
                 )
             }
             repository.getMovements(current.filters).fold(
                 onSuccess = { items ->
+                    val savedAt = offlineStore.save(role, "inventory:kardex", current.filters.asQueryMap(), items)
                     mutableState.value = mutableState.value.copy(
-                        movements = items,
-                        isLoading = false,
-                        hasLoaded = true,
-                        errorMessage = null,
+                        movements = items, isLoading = false, hasLoaded = true,
+                        errorMessage = if (savedAt == null) "El Kardex se recibió, pero no pudo guardarse en Room." else null,
+                        message = if (savedAt == null) "No se conservó una copia offline de esta consulta." else null,
                     )
                 },
                 onFailure = { error ->
-                    mutableState.value = mutableState.value.copy(
-                        isLoading = false,
-                        hasLoaded = true,
-                        errorMessage = error.message ?: "No se pudieron consultar los movimientos.",
-                    )
+                    if (error.isAuthorizationFailure()) {
+                        runCatching { offlineStore.invalidateResource("inventory:kardex") }
+                        mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = error.message ?: "No tienes autorización para consultar el Kardex.", offlineNotice = null)
+                    } else if (error.isTransportFailure()) {
+                        val cached = runCatching { offlineStore.readList(role, "inventory:kardex", current.filters.asQueryMap(), InventoryMovementDto::class.java) }.getOrNull()
+                        if (cached == null) mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = "Sin conexión y todavía no hay un Kardex guardado con estos filtros.", offlineNotice = null)
+                        else {
+                            val notice = "Sin conexión · movimientos consultados el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(cached.second))}. Exportar requiere conexión."
+                            mutableState.value = mutableState.value.copy(movements = cached.first, isLoading = false, hasLoaded = true, errorMessage = null, message = notice, offlineNotice = notice)
+                        }
+                    } else mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = error.message ?: "No se pudieron consultar los movimientos.", offlineNotice = null)
                 },
             )
         }
@@ -199,6 +224,14 @@ class KardexViewModel(application: Application) : AndroidViewModel(application) 
         }
         if (filters.referenceType.length > 50) return "El tipo de referencia admite hasta 50 caracteres."
         return null
+    }
+
+    private fun Throwable.isTransportFailure(): Boolean = generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable.isAuthorizationFailure(): Boolean = generateSequence(this) { it.cause }
+        .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
+
+    private fun com.europartes.mobile.data.local.ProductEntity.asProductDto(): ProductDto? = remoteId?.let { id ->
+        ProductDto(id, nombre, marca, marcaNombre, descripcion, precioUnitario, stockActual, stockReservado, stockDisponible, proveedor, proveedorNombre, fechaRegistro, estado)
     }
 
     private companion object {

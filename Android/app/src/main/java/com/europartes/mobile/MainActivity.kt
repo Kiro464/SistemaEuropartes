@@ -66,6 +66,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.europartes.mobile.data.local.ProductEntity
+import com.europartes.mobile.data.local.SyncOperationEntity
 import com.europartes.mobile.data.remote.AuthenticatedUser
 import com.europartes.mobile.data.remote.ProductDto
 import com.europartes.mobile.data.remote.CatalogOptionDto
@@ -112,8 +113,11 @@ class MainActivity : ComponentActivity() {
                 val loginState by loginViewModel.uiState.collectAsState()
                 val productsViewModel: ProductsViewModel = viewModel()
                 val productsState by productsViewModel.uiState.collectAsState()
-                val localProductsViewModel: LocalProductsViewModel = viewModel()
+                val accountScope = loginState.authenticatedUser?.userId?.toString() ?: "anonymous"
+                val localProductsViewModel: LocalProductsViewModel = viewModel(key = "local_products_$accountScope")
                 val localProducts by localProductsViewModel.localProducts.collectAsState()
+                val localSyncOperations by localProductsViewModel.syncOperations.collectAsState()
+                val unclaimedLegacyDraftCount by localProductsViewModel.unclaimedLegacyDraftCount.collectAsState()
                 val localProductsState by localProductsViewModel.uiState.collectAsState()
 
                 LaunchedEffect(loginState.authenticatedUser?.userId) {
@@ -121,6 +125,11 @@ class MainActivity : ComponentActivity() {
                         productsViewModel.loadProducts()
                     } else {
                         productsViewModel.reset()
+                    }
+                }
+                LaunchedEffect(localProductsState.message) {
+                    if (localProductsState.message?.contains("confirmados por el servidor") == true) {
+                        productsViewModel.loadProducts()
                     }
                 }
 
@@ -151,20 +160,29 @@ class MainActivity : ComponentActivity() {
                             productWorking = productsState.isWorking,
                             productMessage = productsState.message,
                             productMessageIsError = productsState.messageIsError,
+                            productShowingOfflineCache = productsState.isShowingOfflineCache,
+                            productLastSyncAtEpochMs = productsState.lastSuccessfulSyncAtEpochMs,
+                            productIsOnline = productsState.isOnline,
+                            offlineReadOnlySession = loginState.offlineReadOnlySession,
                             brands = productsState.brands,
                             suppliers = productsState.suppliers,
-                            onLoadCatalogs = productsViewModel::loadCatalogs,
+                            onLoadCatalogs = { productsViewModel.loadCatalogs(user.grupo) },
                             onSaveProduct = productsViewModel::save,
                             onChangeProductState = productsViewModel::changeActive,
                             onRefreshProducts = { productsViewModel.loadProducts() },
                             onClearProductMessage = productsViewModel::clearMessage,
                             localProducts = localProducts,
+                            localSyncOperations = localSyncOperations,
+                            unclaimedLegacyDraftCount = unclaimedLegacyDraftCount,
                             localWorking = localProductsState.isWorking,
                             localMessage = localProductsState.message,
                             localIsError = localProductsState.isError,
                             onCreateLocal = localProductsViewModel::create,
                             onUpdateLocal = localProductsViewModel::update,
                             onDeleteLocal = localProductsViewModel::delete,
+                            onSyncPendingProducts = localProductsViewModel::syncPendingCreates,
+                            onClaimLegacyDrafts = localProductsViewModel::claimLegacyDrafts,
+                            onDiscardSyncOperation = localProductsViewModel::discardSyncOperation,
                             onClearLocalMessage = localProductsViewModel::clearMessage,
                             onLogout = loginViewModel::logout,
                             modifier = Modifier.fillMaxSize(),
@@ -278,6 +296,10 @@ private fun AuthenticatedShell(
     productWorking: Boolean,
     productMessage: String?,
     productMessageIsError: Boolean,
+    productShowingOfflineCache: Boolean = false,
+    productLastSyncAtEpochMs: Long? = null,
+    productIsOnline: Boolean = true,
+    offlineReadOnlySession: Boolean = false,
     brands: List<CatalogOptionDto>,
     suppliers: List<CatalogOptionDto>,
     onLoadCatalogs: () -> Unit,
@@ -286,24 +308,32 @@ private fun AuthenticatedShell(
     onRefreshProducts: () -> Unit,
     onClearProductMessage: () -> Unit,
     localProducts: List<ProductEntity>,
+    localSyncOperations: List<SyncOperationEntity> = emptyList(),
+    unclaimedLegacyDraftCount: Int = 0,
     localWorking: Boolean,
     localMessage: String?,
     localIsError: Boolean,
     onCreateLocal: (String, String?, String?, String?, Int?) -> Unit,
     onUpdateLocal: (ProductEntity, String, String?, String?, String?, Int?) -> Unit,
     onDeleteLocal: (ProductEntity) -> Unit,
+    onSyncPendingProducts: () -> Unit = {},
+    onDiscardSyncOperation: (SyncOperationEntity) -> Unit = {},
+    onClaimLegacyDrafts: () -> Unit = {},
     onClearLocalMessage: () -> Unit,
     onLogout: () -> Unit,
     previewDrawerOpen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val navigation = remember(user.grupo) { navigationForRole(user.grupo) }
-    val purchasingViewModel: PurchasingViewModel = viewModel()
-    val salesViewModel: SalesViewModel = viewModel()
-    val securityViewModel: SecurityViewModel = viewModel()
-    val dashboardViewModel: DashboardViewModel = viewModel()
+    val purchasingViewModel: PurchasingViewModel = viewModel(key = "purchasing_user_${user.userId}")
+    val salesViewModel: SalesViewModel = viewModel(key = "sales_user_${user.userId}")
+    val securityViewModel: SecurityViewModel = viewModel(key = "security_user_${user.userId}")
+    val dashboardViewModel: DashboardViewModel = viewModel(key = "dashboard_user_${user.userId}")
     DisposableEffect(user.userId) {
-        onDispose { salesViewModel.reset() }
+        onDispose {
+            salesViewModel.reset()
+            dashboardViewModel.reset()
+        }
     }
     var destination by remember(user.userId, navigation) {
         mutableStateOf(navigation.firstOrNull()?.destination)
@@ -313,7 +343,7 @@ private fun AuthenticatedShell(
     val title = when (destination) {
         MobileDestination.PRODUCTS -> "Productos del servidor"
         MobileDestination.KARDEX -> "Movimientos y Kardex"
-        MobileDestination.LOCAL_DRAFTS -> "Borradores locales"
+        MobileDestination.LOCAL_DRAFTS -> "Productos en este dispositivo"
         MobileDestination.CATALOGS -> "Catálogos"
         MobileDestination.PURCHASING -> "Solicitudes y compras"
         MobileDestination.CUSTOMERS -> "Clientes"
@@ -384,7 +414,14 @@ private fun AuthenticatedShell(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+                    title = {
+                        Column {
+                            Text(title, style = MaterialTheme.typography.titleLarge)
+                            if (offlineReadOnlySession) {
+                                Text("Sesión local · solo lectura; conecta internet para operar", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    },
                     navigationIcon = {
                         TextButton(
                             onClick = { scope.launch { drawerState.open() } },
@@ -423,6 +460,11 @@ private fun AuthenticatedShell(
                             onChangeState = onChangeProductState,
                             onClearMessage = onClearProductMessage,
                             modifier = Modifier.fillMaxSize().padding(padding),
+                            isShowingOfflineCache = productShowingOfflineCache,
+                            lastSuccessfulSyncAtEpochMs = productLastSyncAtEpochMs,
+                            isOnline = productIsOnline,
+                            localProductCount = if (user.grupo in EuropartesRoles.canManageProductsInBackend) localProducts.size else 0,
+                            onOpenLocalProducts = { destination = MobileDestination.LOCAL_DRAFTS },
                         )
                     } else {
                         NoAuthorizedDestination(Modifier.fillMaxSize().padding(padding))
@@ -443,13 +485,19 @@ private fun AuthenticatedShell(
                     if (user.grupo in EuropartesRoles.canManageProductsInBackend) {
                         LocalProductsScreen(
                             products = localProducts,
+                            syncOperations = localSyncOperations,
+                            unclaimedLegacyDraftCount = unclaimedLegacyDraftCount,
                             isWorking = localWorking,
                             message = localMessage,
                             isError = localIsError,
                             onCreate = onCreateLocal,
                             onUpdate = onUpdateLocal,
                             onDelete = onDeleteLocal,
+                            onSyncPending = onSyncPendingProducts,
+                            onDiscardSyncOperation = onDiscardSyncOperation,
+                            onClaimLegacyDrafts = onClaimLegacyDrafts,
                             onClearMessage = onClearLocalMessage,
+                            onBackToProducts = { destination = MobileDestination.PRODUCTS },
                             modifier = Modifier.fillMaxSize().padding(padding),
                         )
                     } else {
@@ -529,6 +577,8 @@ private fun ProductsScreen(
     message: String?, messageIsError: Boolean, brands: List<CatalogOptionDto>, suppliers: List<CatalogOptionDto>,
     onLoadCatalogs: () -> Unit, onSave: (Int?, String, String, Int?, Int?, String) -> Unit,
     onChangeState: (ProductDto, Boolean) -> Unit, onClearMessage: () -> Unit, modifier: Modifier = Modifier,
+    isShowingOfflineCache: Boolean = false, lastSuccessfulSyncAtEpochMs: Long? = null, isOnline: Boolean = true,
+    localProductCount: Int = 0, onOpenLocalProducts: () -> Unit = {},
 ) {
     var editing by remember { mutableStateOf<ProductDto?>(null) }
     var showForm by remember { mutableStateOf(false) }
@@ -537,7 +587,7 @@ private fun ProductsScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(canManage) { if (canManage) onLoadCatalogs() }
     LaunchedEffect(message, messageIsError) {
-        if (!messageIsError && message in setOf("Producto creado en el servidor.", "Producto actualizado en el servidor.")) showForm = false
+        if ((!messageIsError && message in setOf("Producto creado en el servidor.", "Producto actualizado en el servidor.", "Producto guardado localmente como pendiente de envío. Aún no existe en el servidor.")) || message?.startsWith("El servidor no confirmó el resultado.") == true) showForm = false
     }
     Column(modifier = modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -545,9 +595,34 @@ private fun ProductsScreen(
                 Text("Productos", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
                 Text("Catálogo remoto · inventario", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            EuropartesStateBadge("API", isPositive = true)
+            EuropartesStateBadge(
+                when { isShowingOfflineCache -> "CACHÉ"; isOnline -> "EN LÍNEA"; else -> "SIN RED" },
+                isPositive = isOnline,
+            )
         }
         Spacer(Modifier.height(14.dp))
+        if (canManage) {
+            OutlinedButton(
+                onClick = onOpenLocalProducts,
+                enabled = !isWorking,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text("En este dispositivo · $localProductCount") }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (isShowingOfflineCache) {
+            val lastSync = lastSuccessfulSyncAtEpochMs?.let {
+                java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))
+            } ?: "fecha desconocida"
+            EuropartesStatusMessage(
+                "Sin conexión · datos guardados localmente, posiblemente desactualizados. Última consulta confirmada: $lastSync",
+                isError = false,
+            )
+            Spacer(Modifier.height(10.dp))
+        } else if (!isOnline) {
+            EuropartesStatusMessage("Sin conectividad. Las consultas y operaciones remotas requieren conexión.", isError = false)
+            Spacer(Modifier.height(10.dp))
+        }
         EuropartesTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },

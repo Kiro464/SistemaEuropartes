@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.DatabaseProvider
+import com.europartes.mobile.data.local.ProductEntity
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.remote.*
 import com.europartes.mobile.data.repository.CatalogItem
@@ -11,6 +12,10 @@ import com.europartes.mobile.data.repository.CatalogKind
 import com.europartes.mobile.data.repository.CatalogRepository
 import com.europartes.mobile.data.repository.LocalProductRepository
 import com.europartes.mobile.data.repository.PurchasingRepository
+import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
+import com.europartes.mobile.data.repository.OfflineCatalogRepository
+import java.io.IOException
+import retrofit2.HttpException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,42 +51,60 @@ data class PurchasingUiState(
     val message: String? = null,
     val messageIsError: Boolean = false,
     val hasLoaded: Boolean = false,
+    val offlineNotice: String? = null,
 )
 
 class PurchasingViewModel(application: Application) : AndroidViewModel(application) {
     private val tokenStore = TokenStore(application)
+    private val database = DatabaseProvider.get(application)
     private val api = ApiClient.purchasingApi(tokenStore)
     private val repository = PurchasingRepository(api)
-    private val localProducts = LocalProductRepository(DatabaseProvider.get(application).productDao())
+    private val localProducts = LocalProductRepository(database.productDao())
+    private val localCatalogs = OfflineCatalogRepository(database.offlineCatalogDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+    private val offlineStore = OfflineModuleSnapshotStore(
+        database.offlineModuleSnapshotDao(),
+        ownerUserId = { tokenStore.userIdForLocalPartition() },
+    )
     private val catalogRepository = CatalogRepository(ApiClient.catalogApi(tokenStore))
     private val productApi = ApiClient.productApi(tokenStore)
     private val _uiState = MutableStateFlow(PurchasingUiState())
     val uiState: StateFlow<PurchasingUiState> = _uiState.asStateFlow()
+    private var activeRole: String? = null
 
     fun load(role: String, filters: PurchaseFilters = _uiState.value.filters, force: Boolean = false) {
         if (_uiState.value.isLoading || _uiState.value.isWorking) return
+        activeRole = role
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, filters = filters)
-            val requestList = if (role in requestRoles) repository.requests() else Result.success(emptyList())
-            val purchaseList = if (role in purchaseRoles) repository.purchases() else Result.success(emptyList())
-            val historyList = if (role in purchaseRoles) repository.history(filters.query()) else Result.success(emptyList())
-            val productList = if (role in purchaseRoles || role == VENDOR) capture { productApi.getProducts() } else Result.success(emptyList())
-            val supplierList = if (role == COORDINATOR) catalogRepository.list(CatalogKind.SUPPLIERS, "", false)
-                else Result.success(emptyList())
-            val failure = requestList.exceptionOrNull() ?: purchaseList.exceptionOrNull() ?: historyList.exceptionOrNull()
-                ?: productList.exceptionOrNull() ?: supplierList.exceptionOrNull()
-            val supplierOptions = supplierList.getOrNull().orEmpty().ifEmpty {
-                (purchaseList.getOrNull().orEmpty().mapNotNull { item ->
+            val requestList = if (role in requestRoles) resolveList(repository.requests(), role, "purchasing:requests", emptyMap(), PurchaseRequestDto::class.java)
+                else CachedList(emptyList())
+            val purchaseList = if (role in purchaseRoles) resolveList(repository.purchases(), role, "purchasing:purchases", emptyMap(), PurchaseDto::class.java)
+                else CachedList(emptyList())
+            val historyQuery = filters.query()
+            val historyList = if (role in purchaseRoles) resolveList(repository.history(historyQuery), role, "purchasing:history", historyQuery, PurchaseHistoryDto::class.java)
+                else CachedList(emptyList())
+            val productList = if (role in purchaseRoles || role == VENDOR) resolveProducts()
+                else CachedList(emptyList())
+            val supplierList = if (role == COORDINATOR) resolveCatalog(role, CatalogKind.SUPPLIERS)
+                else CachedList(emptyList())
+            val errors = listOf(requestList, purchaseList, historyList, productList, supplierList).mapNotNull { it.error }
+            val staleDates = listOf(requestList, purchaseList, historyList, productList, supplierList).mapNotNull { it.staleAt }
+            val supplierOptions = supplierList.rows.ifEmpty {
+                (purchaseList.rows.mapNotNull { item ->
                     item.supplierId?.let { id -> item.supplier?.takeIf(String::isNotBlank)?.let { name -> CatalogItem(id, name) } }
-                } + historyList.getOrNull().orEmpty().mapNotNull { item ->
+                } + historyList.rows.mapNotNull { item ->
                     item.supplierId?.let { id -> item.supplier?.takeIf(String::isNotBlank)?.let { name -> CatalogItem(id, name) } }
                 }).distinctBy { it.id }
             }
+            val offlineNotice = staleDates.maxOrNull()?.let { at ->
+                "Sin conexión · datos guardados el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}. Las operaciones requieren internet."
+            }
             _uiState.value = _uiState.value.copy(
-                requests = requestList.getOrNull().orEmpty(), purchases = purchaseList.getOrNull().orEmpty(),
-                history = historyList.getOrNull().orEmpty(), products = productList.getOrNull().orEmpty().filter { it.estado != false },
+                requests = requestList.rows, purchases = purchaseList.rows,
+                history = historyList.rows, products = productList.rows.filter { it.estado != false },
                 suppliers = supplierOptions.filter { it.active != false }, isLoading = false,
-                error = failure?.message, hasLoaded = true,
+                error = errors.distinct().joinToString(" ").takeIf { it.isNotBlank() }, hasLoaded = true,
+                offlineNotice = offlineNotice,
             )
         }
     }
@@ -95,15 +118,24 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
 
     fun requestDetail(id: Int, onResult: (Result<PurchaseRequestDto>) -> Unit) {
         if (_uiState.value.isWorking) return
-        viewModelScope.launch { onResult(repository.request(id)) }
+        viewModelScope.launch {
+            val role = activeRole ?: return@launch
+            onResult(resolveOne(repository.request(id), role, "purchasing:request:$id", mapOf("id" to id.toString()), PurchaseRequestDto::class.java))
+        }
     }
     fun purchaseDetail(id: Int, onResult: (Result<PurchaseDto>) -> Unit) {
         if (_uiState.value.isWorking) return
-        viewModelScope.launch { onResult(repository.purchase(id)) }
+        viewModelScope.launch {
+            val role = activeRole ?: return@launch
+            onResult(resolveOne(repository.purchase(id), role, "purchasing:purchase:$id", mapOf("id" to id.toString()), PurchaseDto::class.java))
+        }
     }
     fun historyDetail(id: Int, onResult: (Result<PurchaseHistoryDto>) -> Unit) {
         if (_uiState.value.isWorking) return
-        viewModelScope.launch { onResult(repository.historyDetail(id)) }
+        viewModelScope.launch {
+            val role = activeRole ?: return@launch
+            onResult(resolveOne(repository.historyDetail(id), role, "purchasing:history-detail:$id", mapOf("id" to id.toString()), PurchaseHistoryDto::class.java))
+        }
     }
 
     fun createRequest(role: String, observations: String, details: List<RequestLineWrite>) = write(role, "Solicitud creada en el servidor.") {
@@ -155,10 +187,11 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
             val result: Result<T> = try { operation() } catch (cancelled: CancellationException) { throw cancelled } catch (error: Throwable) { Result.failure(error) }
             result.fold(
                 onSuccess = {
+                    listOf("purchasing:requests", "purchasing:purchases", "purchasing:history").forEach { resource -> runCatching { offlineStore.invalidateResource(resource) } }
                     _uiState.value = _uiState.value.copy(isWorking = false, message = success, messageIsError = false)
                     if (refreshProductCache) {
                         capture { productApi.getProducts() }.onSuccess { products ->
-                            runCatching { localProducts.cacheRemote(products) }
+                            runCatching { localProducts.cacheRemote(products, tokenStore.userIdForLocalPartition()) }
                             _uiState.value = _uiState.value.copy(products = products.filter { it.estado != false })
                         }
                     }
@@ -177,6 +210,108 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
         throw cancelled
     } catch (error: Throwable) {
         Result.failure(error)
+    }
+
+    private data class CachedList<T>(val rows: List<T>, val staleAt: Long? = null, val error: String? = null)
+
+    private suspend fun resolveProducts(): CachedList<ProductDto> {
+        val owner = tokenStore.userIdForLocalPartition()
+        val result = capture { productApi.getProducts() }
+        return result.fold(
+            onSuccess = { rows ->
+                val savedAt = runCatching {
+                    localProducts.cacheRemote(rows, owner)
+                    localProducts.cachedRemoteSnapshot(includeInactive = false, owner = owner)?.second
+                }.getOrNull()
+                CachedList(rows, savedAt, if (savedAt == null) "Los productos se recibieron, pero no se guardó la copia local." else null)
+            },
+            onFailure = { error ->
+                if (error.isAuthorizationFailure()) {
+                    runCatching { localProducts.clearRemoteCache(owner) }
+                    CachedList(emptyList(), error = error.message ?: "No tienes autorización para consultar productos.")
+                } else if (error.isTransportFailure()) {
+                    val cached = runCatching { localProducts.cachedRemoteSnapshot(includeInactive = false, owner = owner) }.getOrNull()
+                    if (cached == null) CachedList(emptyList(), error = "Sin conexión y todavía no hay productos guardados.")
+                    else CachedList(cached.first.mapNotNull { it.asProductDto() }, cached.second)
+                } else CachedList(emptyList(), error = error.message ?: "No se pudieron consultar los productos.")
+            },
+        )
+    }
+
+    private suspend fun resolveCatalog(role: String, kind: CatalogKind): CachedList<CatalogItem> =
+        catalogRepository.list(kind, "", includeInactive = false).fold(
+            onSuccess = { rows ->
+                val savedAt = localCatalogs.saveCatalog(role, kind, includeInactive = false, rows = rows)
+                CachedList(rows, savedAt, if (savedAt == null) "El catálogo se recibió, pero no se guardó en Room." else null)
+            },
+            onFailure = { error ->
+                if (error.isAuthorizationFailure()) {
+                    runCatching { localCatalogs.invalidate(role, kind) }
+                    CachedList(emptyList(), error = error.message ?: "No tienes autorización para consultar este catálogo.")
+                } else if (error.isTransportFailure()) {
+                    val cached = runCatching { localCatalogs.catalog(role, kind, includeInactive = false) }.getOrNull()
+                    if (cached == null) CachedList(emptyList(), error = "Sin conexión y todavía no hay un catálogo guardado.")
+                    else CachedList(cached.first, cached.second)
+                } else CachedList(emptyList(), error = error.message ?: "No se pudo consultar el catálogo.")
+            },
+        )
+
+    private suspend fun <T> resolveList(
+        remote: Result<List<T>>,
+        role: String,
+        resource: String,
+        query: Map<String, String>,
+        itemType: Class<T>,
+    ): CachedList<T> = remote.fold(
+        onSuccess = { rows ->
+            val savedAt = offlineStore.save(role, resource, query, rows)
+            CachedList(rows, error = if (savedAt == null) "No se pudo conservar una copia local de $resource." else null)
+        },
+        onFailure = { error ->
+            if (error.isAuthorizationFailure()) {
+                runCatching { offlineStore.invalidateResource(resource) }
+                CachedList(emptyList(), error = error.message ?: "Acceso no autorizado a $resource.")
+            } else if (error.isTransportFailure()) {
+                val cached = runCatching { offlineStore.readList(role, resource, query, itemType) }.getOrNull()
+                if (cached == null) CachedList(emptyList(), error = "Sin conexión; todavía no hay datos guardados para $resource con estos filtros.")
+                else CachedList(cached.first, cached.second)
+            } else CachedList(emptyList(), error = error.message ?: "No se pudo consultar $resource.")
+        },
+    )
+
+    private suspend fun <T : Any> resolveOne(
+        remote: Result<T>,
+        role: String,
+        resource: String,
+        query: Map<String, String>,
+        itemType: Class<T>,
+    ): Result<T> = remote.fold(
+        onSuccess = { item ->
+            if (offlineStore.save(role, resource, query, item) == null) {
+                _uiState.value = _uiState.value.copy(message = "No se pudo guardar una copia local del detalle.", messageIsError = true)
+            }
+            Result.success(item)
+        },
+        onFailure = { error ->
+            if (error.isAuthorizationFailure()) {
+                runCatching { offlineStore.invalidateResource(resource) }
+                Result.failure(error)
+            } else if (error.isTransportFailure()) {
+                val cached = runCatching { offlineStore.readOne(role, resource, query, itemType) }.getOrNull()
+                if (cached != null) {
+                    _uiState.value = _uiState.value.copy(offlineNotice = "Sin conexión · detalle guardado el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(cached.second))}; solo lectura.")
+                    Result.success(cached.first)
+                } else Result.failure(IllegalStateException("Sin conexión y no hay una copia local de este detalle."))
+            } else Result.failure(error)
+        },
+    )
+
+    private fun Throwable.isTransportFailure(): Boolean = generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable.isAuthorizationFailure(): Boolean = generateSequence(this) { it.cause }
+        .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
+
+    private fun ProductEntity.asProductDto(): ProductDto? = remoteId?.let { id ->
+        ProductDto(id, nombre, marca, marcaNombre, descripcion, precioUnitario, stockActual, stockReservado, stockDisponible, proveedor, proveedorNombre, fechaRegistro, estado)
     }
 
     companion object {

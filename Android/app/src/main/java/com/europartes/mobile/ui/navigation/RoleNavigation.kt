@@ -35,9 +35,6 @@ fun navigationForRole(role: String): List<NavigationItem> = buildList {
     if (role in EuropartesRoles.canReadKardex) {
         add(NavigationItem(MobileDestination.KARDEX, MobileDestination.KARDEX.label))
     }
-    if (role in EuropartesRoles.canManageProductsInBackend) {
-        add(NavigationItem(MobileDestination.LOCAL_DRAFTS, MobileDestination.LOCAL_DRAFTS.label))
-    }
     if (CatalogKind.entries.any { canReadCatalog(it, role) }) {
         add(NavigationItem(MobileDestination.CATALOGS, MobileDestination.CATALOGS.label))
     }

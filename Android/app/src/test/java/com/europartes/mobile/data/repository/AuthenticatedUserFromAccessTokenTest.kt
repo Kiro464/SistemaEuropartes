@@ -31,6 +31,18 @@ class AuthenticatedUserFromAccessTokenTest {
         )
     }
 
+    @Test
+    fun offlineIdentityRequiresAnUnexpiredAccessToken() {
+        val now = 1_800_000_000L
+        val valid = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor","exp":1800000010}""")
+        val expired = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor","exp":1799999999}""")
+        val missingExpiry = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor"}""")
+
+        assertEquals(17, authenticatedUserFromUnexpiredAccessToken(valid, now)?.userId)
+        assertNull(authenticatedUserFromUnexpiredAccessToken(expired, now))
+        assertNull(authenticatedUserFromUnexpiredAccessToken(missingExpiry, now))
+    }
+
     private fun tokenWithPayload(payload: String): String =
         "header.${Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toByteArray())}.signature"
 }
