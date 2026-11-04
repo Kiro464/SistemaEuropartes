@@ -152,7 +152,6 @@ fun ConnectivityBanner(state: SyncUiState, onOpenSync: () -> Unit, modifier: Mod
             if (pending > 0) append(" · $pendingText")
         }
         pending > 0 -> "Enviando al servidor · $pendingText"
-        state.isSyncing -> "Actualizando los datos guardados en el dispositivo…"
         else -> return
     }
     val isProblem = state.problemCount > 0

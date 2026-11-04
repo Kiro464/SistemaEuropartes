@@ -38,6 +38,7 @@ import com.europartes.mobile.data.repository.CatalogKind
 import com.europartes.mobile.data.sync.OFFLINE_SAVED_PREFIX
 import com.europartes.mobile.data.sync.pendingLabel
 import com.europartes.mobile.ui.catalogs.CatalogQuickEditor
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.ControlShape
@@ -139,6 +140,7 @@ fun ProductsScreen(
     }
 
     LazyColumn(
+        state = rememberScrollToMessage(message),
         modifier = modifier,
         contentPadding = PaddingValues(PagePadding),
         verticalArrangement = Arrangement.spacedBy(SectionGap),
@@ -281,6 +283,15 @@ private fun ProductFormDialog(
     var brandId by remember(initial?.id) { mutableStateOf(initial?.marca) }
     var supplierId by remember(initial?.id) { mutableStateOf(initial?.proveedor) }
     var quickEdit by remember { mutableStateOf<Pair<CatalogKind, Int?>?>(null) }
+    var brandAdding by remember { mutableStateOf(false) }
+    // Like the web's onSuccess(newId): a record created from the shortcut ends up selected.
+    var idsBeforeAdd by remember { mutableStateOf<Set<Int>?>(null) }
+    LaunchedEffect(brands) {
+        if (quickEdit == null && brandAdding) idsBeforeAdd?.let { before -> brands.firstOrNull { it.id !in before }?.let { brandId = it.id; idsBeforeAdd = null } }
+    }
+    LaunchedEffect(suppliers) {
+        if (quickEdit == null && !brandAdding) idsBeforeAdd?.let { before -> suppliers.firstOrNull { it.id !in before }?.let { supplierId = it.id; idsBeforeAdd = null } }
+    }
     EuropartesDialog(
         title = if (initial == null) "Nuevo producto" else "Editar producto",
         subtitle = if (initial == null) "Se registrará en el catálogo." else "Código #${initial.id}",
@@ -293,8 +304,8 @@ private fun ProductFormDialog(
     ) {
         EuropartesTextField(name, { name = it }, "Nombre del producto", enabled = !isWorking, required = true)
         EuropartesTextField(description, { description = it }, "Descripción", enabled = !isWorking, required = true, multiline = true)
-        CatalogPicker("Marca", brands, brandId, !isWorking, { brandId = it }, onAdd = { quickEdit = CatalogKind.BRANDS to null }, onEdit = { quickEdit = CatalogKind.BRANDS to brandId })
-        CatalogPicker("Proveedor", suppliers, supplierId, !isWorking, { supplierId = it }, onAdd = { quickEdit = CatalogKind.SUPPLIERS to null }, onEdit = { quickEdit = CatalogKind.SUPPLIERS to supplierId })
+        CatalogPicker("Marca", brands, brandId, !isWorking, { brandId = it }, onAdd = { brandAdding = true; idsBeforeAdd = brands.map { it.id }.toSet(); quickEdit = CatalogKind.BRANDS to null }, onEdit = { idsBeforeAdd = null; quickEdit = CatalogKind.BRANDS to brandId })
+        CatalogPicker("Proveedor", suppliers, supplierId, !isWorking, { supplierId = it }, onAdd = { brandAdding = false; idsBeforeAdd = suppliers.map { it.id }.toSet(); quickEdit = CatalogKind.SUPPLIERS to null }, onEdit = { idsBeforeAdd = null; quickEdit = CatalogKind.SUPPLIERS to supplierId })
         EuropartesTextField(price, { price = it }, "Precio unitario (C$)", enabled = !isWorking, required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
         if (initial != null) {
             MetaGrid(
@@ -322,7 +333,7 @@ private fun CatalogPicker(label: String, options: List<CatalogOptionDto>, select
 }
 
 @Composable
-private fun InlineIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+internal fun InlineIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Box(
         Modifier.size(44.dp).clip(ControlShape).then(androidx.compose.ui.Modifier.clickable(enabled = enabled, onClick = onClick)),

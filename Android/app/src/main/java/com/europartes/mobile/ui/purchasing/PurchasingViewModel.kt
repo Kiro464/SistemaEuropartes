@@ -69,6 +69,8 @@ data class PurchasingUiState(
     val isOnline: Boolean = true,
     val pendingRequestIds: Set<Int> = emptySet(),
     val pendingPurchaseIds: Set<Int> = emptySet(),
+    /** Grows with each accepted write; forms stay open, keeping what was typed, until it does. */
+    val savedWrites: Int = 0,
 )
 
 class PurchasingViewModel(application: Application) : AndroidViewModel(application) {
@@ -268,7 +270,7 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
             result.fold(
                 onSuccess = {
                     listOf("purchasing:requests", "purchasing:purchases", "purchasing:history").forEach { resource -> runCatching { offlineStore.invalidateResource(resource) } }
-                    _uiState.value = _uiState.value.copy(isWorking = false, message = success, messageIsError = false)
+                    _uiState.value = _uiState.value.copy(isWorking = false, message = success, messageIsError = false, savedWrites = _uiState.value.savedWrites + 1)
                     load(role, _uiState.value.filters, force = true)
                 },
                 onFailure = { error ->
@@ -285,7 +287,7 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
             val target = targetId ?: outbox.newTemporaryId()
             outbox.enqueue(role, module, action, target, payload, PendingDisplay(label, display))
             SyncCoordinator.request(getApplication())
-            _uiState.value = _uiState.value.copy(message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", messageIsError = false)
+            _uiState.value = _uiState.value.copy(message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", messageIsError = false, savedWrites = _uiState.value.savedWrites + 1)
             load(role, _uiState.value.filters, force = true)
         } catch (cancelled: CancellationException) {
             throw cancelled

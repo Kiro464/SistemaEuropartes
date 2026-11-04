@@ -58,6 +58,7 @@ import com.europartes.mobile.data.remote.DispatchOrderDto
 import com.europartes.mobile.data.remote.ProductDto
 import com.europartes.mobile.data.repository.InvoiceFilters
 import com.europartes.mobile.data.sync.pendingLabel
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.ControlShape
@@ -107,7 +108,7 @@ fun CustomersScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, mo
         val term = search.trim()
         state.customers.filter { customer -> term.isEmpty() || listOf(customer.displayName, customer.email, customer.phone).any { it.contains(term, ignoreCase = true) } }
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.error ?: state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 title = "Clientes",
@@ -144,12 +145,14 @@ fun CustomersScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, mo
             }
         }
     }
+    LaunchedEffect(state.savedCustomerWrites) { creating = false; editing = null }
     if (creating || editing != null) {
         CustomerFormDialog(
             initial = editing,
             busy = state.isWorking,
-            onDismiss = { creating = false; editing = null },
-            onSave = { request -> viewModel.saveCustomer(role, editing?.id, request); creating = false; editing = null },
+            serverError = state.error,
+            onDismiss = { creating = false; editing = null; viewModel.clearMessages() },
+            onSave = { request -> viewModel.saveCustomer(role, editing?.id, request) },
         )
     }
     deactivating?.let { customer ->
@@ -201,7 +204,7 @@ private fun CustomerCard(customer: CustomerDto, isPending: Boolean, canManage: B
 }
 
 @Composable
-private fun CustomerFormDialog(initial: CustomerDto?, busy: Boolean, onDismiss: () -> Unit, onSave: (CustomerWriteRequest) -> Unit) {
+private fun CustomerFormDialog(initial: CustomerDto?, busy: Boolean, serverError: String?, onDismiss: () -> Unit, onSave: (CustomerWriteRequest) -> Unit) {
     var names by remember(initial?.id) { mutableStateOf(initial?.names.orEmpty()) }
     var surnames by remember(initial?.id) { mutableStateOf(initial?.surnames.orEmpty()) }
     var phone by remember(initial?.id) { mutableStateOf(initial?.phone.orEmpty()) }
@@ -220,7 +223,8 @@ private fun CustomerFormDialog(initial: CustomerDto?, busy: Boolean, onDismiss: 
                     !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() -> "Ingresa un correo válido."
                     else -> null
                 }
-                if (problem != null) validation = problem else onSave(CustomerWriteRequest(names.trim(), surnames.trim(), phone.trim(), address.trim(), email.trim(), initial?.active ?: true))
+                validation = problem
+                if (problem == null) onSave(CustomerWriteRequest(names.trim(), surnames.trim(), phone.trim(), address.trim(), email.trim(), initial?.active ?: true))
             }, isLoading = busy)
         },
     ) {
@@ -229,7 +233,7 @@ private fun CustomerFormDialog(initial: CustomerDto?, busy: Boolean, onDismiss: 
         EuropartesTextField(phone, { phone = it }, "Teléfono", required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
         EuropartesTextField(email, { email = it }, "Correo electrónico", required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
         EuropartesTextField(address, { address = it }, "Dirección", required = true)
-        validation?.let { EuropartesStatusMessage(it, true) }
+        (validation ?: serverError)?.let { EuropartesStatusMessage(it, true) }
     }
 }
 
@@ -270,7 +274,7 @@ fun PointOfSaleScreen(user: AuthenticatedUser, viewModel: SalesViewModel, onProd
                 { panel = it },
             )
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f), state = rememberScrollToMessage(state.error ?: state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             state.error?.let { item { EuropartesStatusMessage(it, true, onDismiss = viewModel::clearMessages) } }
             if (state.invoiceOutcomeUncertain) item {
                 EuropartesButton("Ya revisé el historial; habilitar un nuevo intento", { confirmUncertainRetry = true }, Modifier.fillMaxWidth(), variant = ButtonVariant.Secondary, enabled = state.isOnline)
@@ -479,7 +483,7 @@ fun SalesHistoryScreen(role: String, sessionKey: Int, viewModel: SalesViewModel,
         val term = search.trim()
         state.history.filter { invoice -> term.isEmpty() || listOf(invoice.id.toString(), invoice.customer, invoice.employee, invoice.date).any { it.contains(term, ignoreCase = true) } }
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.error ?: state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 title = "Historial de ventas",
@@ -564,7 +568,7 @@ fun DispatchesScreen(role: String, sessionKey: Int, viewModel: SalesViewModel, o
     var confirming by remember { mutableStateOf<Pair<DispatchOrderDto, Map<String, Int>?>?>(null) }
     val partialValues = remember(sessionKey) { mutableStateMapOf<String, String>() }
     LaunchedEffect(role, sessionKey) { viewModel.loadDispatches(role) }
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.error ?: state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 eyebrow = "Logística",

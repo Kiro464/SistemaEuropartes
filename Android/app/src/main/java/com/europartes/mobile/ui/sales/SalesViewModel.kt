@@ -68,6 +68,8 @@ data class SalesUiState(
     val isExporting: Boolean = false,
     val invoiceOutcomeUncertain: Boolean = false,
     val uncertainDispatchIds: Set<Int> = emptySet(),
+    /** Grows with each saved customer; the form stays open, keeping what was typed, until it does. */
+    val savedCustomerWrites: Int = 0,
     val error: String? = null,
     val message: String? = null,
     val lastInvoiceId: Int? = null,
@@ -127,11 +129,11 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.value = SalesUiState()
     }
 
-    fun loadCustomers(role: String, search: String = "") {
+    fun loadCustomers(role: String, search: String = "", keepMessage: Boolean = false) {
         if (role !in CUSTOMER_ROLES || mutableState.value.isLoading || mutableState.value.isWorking) return
         activeCustomerRole = role
         activeCustomerSearch = search.trim()
-        mutableState.value = mutableState.value.copy(isLoading = true, error = null, message = null, offlineNotice = null, customersSearch = search.trim())
+        mutableState.value = mutableState.value.copy(isLoading = true, error = null, message = if (keepMessage) mutableState.value.message else null, offlineNotice = null, customersSearch = search.trim())
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             sales.customers(search).fold(
@@ -152,7 +154,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                     if (offlineData != null) {
                         val fetched = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(offlineData.second))
                         val pending = pendingCustomerOperations()
-                        mutableState.value = mutableState.value.copy(customers = applyPendingCustomers(offlineData.first, pending).matching(search), pendingCustomerIds = pendingIds(PendingModule.CUSTOMER, pending), isLoading = false, customersLoaded = true, error = null, message = "Sin conexión · clientes guardados el $fetched.", customersShowingOfflineSnapshot = true, customersSnapshotAtEpochMs = offlineData.second, offlineNotice = "Tus cambios se enviarán al servidor al reconectar.")
+                        mutableState.value = mutableState.value.copy(customers = applyPendingCustomers(offlineData.first, pending).matching(search), pendingCustomerIds = pendingIds(PendingModule.CUSTOMER, pending), isLoading = false, customersLoaded = true, error = null, message = mutableState.value.message.takeIf { keepMessage } ?: "Sin conexión · clientes guardados el $fetched.", customersShowingOfflineSnapshot = true, customersSnapshotAtEpochMs = offlineData.second, offlineNotice = "Tus cambios se enviarán al servidor al reconectar.")
                     } else mutableState.value = mutableState.value.copy(
                         isLoading = false,
                         customers = emptyList(),
@@ -184,8 +186,8 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
             val target = id ?: outbox.newTemporaryId()
             outbox.enqueue(role, PendingModule.CUSTOMER, action, target, payload, PendingDisplay(label))
             SyncCoordinator.request(getApplication())
-            mutableState.value = mutableState.value.copy(isWorking = false, message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", error = null)
-            loadCustomers(role, activeCustomerSearch)
+            mutableState.value = mutableState.value.copy(isWorking = false, savedCustomerWrites = mutableState.value.savedCustomerWrites + 1, message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", error = null)
+            loadCustomers(role, activeCustomerSearch, keepMessage = true)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -208,6 +210,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                     mutableState.value = mutableState.value.copy(
                         customers = updatedCustomers,
                         isWorking = false,
+                        savedCustomerWrites = mutableState.value.savedCustomerWrites + 1,
                         message = if (id == null) "Cliente creado en el servidor." else "Cliente actualizado en el servidor.",
                         error = null,
                     )
@@ -456,15 +459,15 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelExport() { mutableState.value = mutableState.value.copy(isExporting = false) }
 
-    fun loadDispatches(role: String) {
+    fun loadDispatches(role: String, keepMessage: Boolean = false) {
         if (role != OFICIAL_LOGISTICA || mutableState.value.isLoading || mutableState.value.isWorking) return
         activeCustomerRole = role
-        mutableState.value = mutableState.value.copy(isLoading = true, error = null, message = null, offlineNotice = null)
+        mutableState.value = mutableState.value.copy(isLoading = true, error = null, message = if (keepMessage) mutableState.value.message else null, offlineNotice = null)
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             val loaded = resolveList(sales.pendingDispatches(), role, "sales:pending-dispatches", emptyMap(), DispatchOrderDto::class.java)
             val notice = loaded.fetchedAt.takeIf { loaded.offline }?.let { "Sin conexión · bandeja consultada el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))}. Las entregas requieren conexión." }
-            mutableState.value = mutableState.value.copy(dispatches = loaded.value.orEmpty(), uncertainDispatchIds = emptySet(), isLoading = false, dispatchesLoaded = true, error = loaded.error, message = notice, offlineNotice = notice)
+            mutableState.value = mutableState.value.copy(dispatches = loaded.value.orEmpty(), uncertainDispatchIds = emptySet(), isLoading = false, dispatchesLoaded = true, error = loaded.error, message = notice ?: mutableState.value.message.takeIf { keepMessage }, offlineNotice = notice)
         }
     }
 
@@ -484,7 +487,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { result ->
                     runCatching { offlineStore.invalidateResource("sales:pending-dispatches") }
                     mutableState.value = mutableState.value.copy(isWorking = false, message = result.message, error = null)
-                    loadDispatches(role)
+                    loadDispatches(role, keepMessage = true)
                     onConfirmed()
                 },
                 onFailure = {

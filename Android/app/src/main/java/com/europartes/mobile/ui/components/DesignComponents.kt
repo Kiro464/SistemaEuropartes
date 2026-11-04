@@ -34,7 +34,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -421,14 +426,25 @@ fun EuropartesStatusMessage(
     val colors = MaterialTheme.colorScheme
     val background = if (isError) colors.errorContainer else EuropartesTheme.colors.infoSoft
     val foreground = if (isError) colors.error else EuropartesTheme.colors.info
+    // A long form keeps its messages below the fold; an error nobody sees looks like a dead button.
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(message) { if (isError) requester.bringIntoView() }
     Row(
-        modifier.fillMaxWidth().background(background, ControlShape).border(1.dp, foreground.copy(alpha = 0.2f), ControlShape).padding(start = 11.dp, end = if (onDismiss == null) 11.dp else 5.dp, top = 9.dp, bottom = 9.dp),
+        modifier.fillMaxWidth().bringIntoViewRequester(requester).background(background, ControlShape).border(1.dp, foreground.copy(alpha = 0.2f), ControlShape).padding(start = 11.dp, end = if (onDismiss == null) 11.dp else 5.dp, top = 9.dp, bottom = 9.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Icon(if (isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info, contentDescription = null, Modifier.padding(top = 1.dp).size(18.dp), tint = foreground)
         Text(message, Modifier.weight(1f), color = if (isError) colors.onErrorContainer else colors.onSurface, style = MaterialTheme.typography.bodySmall.copy(lineHeight = MaterialTheme.typography.bodyMedium.lineHeight))
         if (onDismiss != null) Icon(Icons.Outlined.Close, contentDescription = "Cerrar mensaje", Modifier.size(20.dp).clip(CircleShape).clickable(onClick = onDismiss).padding(2.dp), tint = foreground)
     }
+}
+
+/** Result messages sit above the list; returns there so an action taken far down still gets its answer. */
+@Composable
+fun rememberScrollToMessage(message: String?): LazyListState {
+    val state = rememberLazyListState()
+    LaunchedEffect(message) { if (message != null) state.animateScrollToItem(0) }
+    return state
 }
 
 /** Flat bordered surface, no shadow: the web's `.module-card`. */

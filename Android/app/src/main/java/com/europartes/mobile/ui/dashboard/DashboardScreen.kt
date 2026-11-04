@@ -143,7 +143,7 @@ fun DashboardScreen(
             val sales = state.reports.firstOrNull { it.id == "ventas-total" }
             val purchases = state.reports.firstOrNull { it.id == "compras-total" }
             val criticalStock = state.reports.firstOrNull { it.id == "stock-critico-operacional" }
-            DashboardKpiPanel(sales, purchases, criticalStock, displayCurrency, state.exchangeRate)
+            DashboardKpiPanel(sales, purchases, state.reports.firstOrNull { it.id == "ventas-vs-compras" }, criticalStock, displayCurrency, state.exchangeRate)
             reportOrder.forEach { (id, title) ->
                 state.reports.firstOrNull { it.id == id }?.let { DashboardReportCard(it, title, displayCurrency, state.exchangeRate) }
             }
@@ -175,13 +175,16 @@ fun DashboardScreen(
 private fun DashboardKpiPanel(
     sales: DashboardReportData?,
     purchases: DashboardReportData?,
+    balance: DashboardReportData?,
     criticalStock: DashboardReportData?,
     currency: String,
     exchangeRate: String?,
 ) {
     val salesValue = reportMetric(sales?.payload, listOf("total_ventas", "ventas_total", "monto_ventas", "total", "ventas"))
     val purchasesValue = reportMetric(purchases?.payload, listOf("total_compras", "compras_total", "monto_compras", "total", "compras"))
-    val result = if (salesValue != null && purchasesValue != null) salesValue.subtract(purchasesValue) else null
+    // Same source as the web: the server computes this one over the full history, whatever the period.
+    val result = reportMetric(balance?.payload, listOf("resultado_comercial", "diferencia"))
+    val share = reportMetric(balance?.payload, listOf("porcentaje_sobre_ventas"))
     val criticalCount = when {
         criticalStock?.error != null -> null
         criticalStock?.payload?.isJsonArray == true -> criticalStock.payload.asJsonArray.size()
@@ -189,11 +192,12 @@ private fun DashboardKpiPanel(
     }
     KpiGrid(
         listOf(
-            KpiItem("Ventas", salesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", sales?.error?.let { "No disponible" }),
-            KpiItem("Compras", purchasesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", purchases?.error?.let { "No disponible" }),
+            KpiItem("Ventas", salesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", sales?.error?.let { "No disponible" } ?: operationsDetail(sales)),
+            KpiItem("Compras", purchasesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", purchases?.error?.let { "No disponible" } ?: operationsDetail(purchases)),
             KpiItem(
                 "Resultado comercial",
                 result?.let { formatMoney(it, currency, exchangeRate) } ?: "—",
+                balance?.error?.let { "No disponible" } ?: share?.let { "${it.setScale(2, RoundingMode.HALF_UP)}% sobre ventas · histórico" },
                 valueColor = result?.let { if (it.signum() < 0) MaterialTheme.colorScheme.error else EuropartesTheme.colors.success },
             ),
             KpiItem(
@@ -243,10 +247,28 @@ private fun DashboardReportCard(report: DashboardReportData, title: String, curr
             report.payload.isJsonArray && report.id in lineChartReports -> DashboardLineChart(report, currency, exchangeRate)
             report.payload.isJsonArray && report.id in donutChartReports -> DashboardDonutChart(report, currency, exchangeRate)
             report.payload.isJsonArray -> DashboardArrayContent(report.id, report.payload.asJsonArray, currency, exchangeRate)
+            report.payload.isJsonObject && report.id == "ventas-vs-compras" -> BalanceContent(report.payload.asJsonObject, currency, exchangeRate)
             report.payload.isJsonObject -> DashboardObjectContent(report.payload.asJsonObject, currency, exchangeRate)
             else -> Text(formatScalar(report.payload, "", currency, exchangeRate))
         }
     }
+}
+
+/** The server ignores the period for this report, so the card says it covers the whole history. */
+@Composable
+private fun BalanceContent(values: JsonObject, currency: String, exchangeRate: String?) {
+    SummaryRow("Ventas", formatScalar(values.get("ventas"), "ventas", currency, exchangeRate))
+    SummaryRow("Compras", formatScalar(values.get("compras"), "compras", currency, exchangeRate))
+    SummaryRow("Resultado comercial", formatScalar(values.get("resultado_comercial"), "ventas", currency, exchangeRate))
+    SummaryRow("Sobre ventas", "${formatScalar(values.get("porcentaje_sobre_ventas"), "", currency, exchangeRate)}%")
+    Text("Acumulado histórico: no depende del periodo seleccionado.", style = MaterialTheme.typography.bodySmall, color = dashboardMuted)
+}
+
+private fun operationsDetail(report: DashboardReportData?): String? {
+    val values = report?.payload?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+    val units = values.number("unidades")?.toInt() ?: return null
+    val operations = values.number("operaciones")?.toInt() ?: return null
+    return "$units ${if (units == 1) "unidad" else "unidades"} · $operations ${if (operations == 1) "operación" else "operaciones"}"
 }
 
 /** Name and units only, lowest stock first; the full list opens on demand because it can be long. */
@@ -389,7 +411,7 @@ private fun DashboardLineChart(report: DashboardReportData, currency: String, ex
         val anchors = listOf(0, records.size / 2, records.lastIndex).distinct()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             anchors.forEach { index ->
-                Text(records[index].displayLabel(index), style = MaterialTheme.typography.labelSmall, color = dashboardMuted, maxLines = 1)
+                Text(records[index].axisLabel(index), style = MaterialTheme.typography.labelSmall, color = dashboardMuted, maxLines = 1)
             }
         }
     }
@@ -428,8 +450,8 @@ private fun DashboardDonutChart(report: DashboardReportData, currency: String, e
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(records.size.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("estados", style = MaterialTheme.typography.labelSmall, color = dashboardMuted)
+                Text(formatScalar(JsonPrimitive(total), "", currency, exchangeRate), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("total", style = MaterialTheme.typography.labelSmall, color = dashboardMuted)
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -548,9 +570,21 @@ private fun JsonObject.displayLabel(index: Int): String {
         .firstNotNullOfOrNull { key -> get(key)?.takeUnless { it.isJsonNull }?.asString }
     if (name != null) {
         val surname = get("apellidos")?.takeUnless { it.isJsonNull }?.asString
-        return listOf(name, surname).filterNotNull().filter(String::isNotBlank).joinToString(" ")
+        val label = listOf(name, surname).filterNotNull().filter(String::isNotBlank).joinToString(" ")
+        // States arrive as ACEPTADA or EN_PROCESO; product names stay as written.
+        return if (label == label.uppercase(Locale.ROOT) && label.any(Char::isLetter)) label.replace('_', ' ').lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() } else label
     }
     return "Registro ${index + 1}"
+}
+
+/** A chart spans several days or years, where a bare month name would repeat. */
+private fun JsonObject.axisLabel(index: Int): String {
+    get("fecha")?.takeUnless { it.isJsonNull }?.asString?.let { raw ->
+        runCatching { return java.time.LocalDate.parse(raw.take(10)).format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("es"))) }
+    }
+    val month = get("nombre_mes")?.takeUnless { it.isJsonNull }?.asString
+    val year = get("anio")?.takeUnless { it.isJsonNull }?.asString
+    return if (month != null && year != null) "${month.take(3)} $year" else displayLabel(index)
 }
 
 private fun JsonObject.number(key: String): Double? = runCatching {

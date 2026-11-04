@@ -26,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.europartes.mobile.data.local.ProductEntity
 import com.europartes.mobile.data.local.SyncOperationEntity
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.EmptyState
@@ -71,7 +72,7 @@ fun LocalProductsScreen(
     var pendingDiscard by remember { mutableStateOf<SyncOperationEntity?>(null) }
     var confirmLegacyClaim by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 eyebrow = "Productos",

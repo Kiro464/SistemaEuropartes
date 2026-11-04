@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -34,6 +35,7 @@ import com.europartes.mobile.data.repository.CatalogItem
 import com.europartes.mobile.data.repository.CatalogKind
 import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.data.sync.pendingLabel
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.EmptyState
@@ -55,6 +57,7 @@ import com.europartes.mobile.ui.components.StatusPill
 import com.europartes.mobile.ui.components.StatusTone
 import com.europartes.mobile.ui.components.formatDisplayDate
 import com.europartes.mobile.ui.navigation.canManageCatalog
+import com.europartes.mobile.ui.products.InlineIconButton
 import com.europartes.mobile.ui.theme.EuropartesTheme
 
 private fun CatalogKind.pageTitle(): String = when (this) {
@@ -96,7 +99,7 @@ fun CatalogsScreen(kind: CatalogKind, role: String, sessionKey: Int, modifier: M
     val visible = items.filter { item ->
         search.isBlank() || listOfNotNull(item.title, item.subtitle, item.details, item.id.toString()).any { it.contains(search.trim(), ignoreCase = true) }
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 title = kind.pageTitle(),
@@ -206,6 +209,17 @@ private fun CatalogFormDialog(
 ) {
     val enabled = !isWorking
     var quickRelated by remember { mutableStateOf<Pair<CatalogKind, Int?>?>(null) }
+    // Like the web's onSuccess(newId): a record created from the shortcut ends up selected.
+    var idsBeforeAdd by remember { mutableStateOf<Set<Int>?>(null) }
+    val relatedIds = if (kind == CatalogKind.SUPPLIERS) relatedCountries.map { it.id } else relatedDepartments.map { it.id }
+    LaunchedEffect(relatedIds) {
+        idsBeforeAdd?.let { before ->
+            relatedIds.firstOrNull { it !in before }?.let { created ->
+                onChange(form.copy(relatedId = created))
+                idsBeforeAdd = null
+            }
+        }
+    }
     EuropartesDialog(
         title = if (editing) "Editar ${kind.singularLabel()}" else kind.newLabel(),
         onDismiss = onDismiss,
@@ -223,7 +237,7 @@ private fun CatalogFormDialog(
             }
             CatalogKind.SUPPLIERS -> {
                 CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre comercial", enabled)
-                RelatedSelector("País", relatedCountries.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.COUNTRIES, role)) { { quickRelated = CatalogKind.COUNTRIES to null } } else null)
+                RelatedSelector("País", relatedCountries.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.COUNTRIES, role)) { { idsBeforeAdd = relatedCountries.map { it.id }.toSet(); quickRelated = CatalogKind.COUNTRIES to null } } else null, onEdit = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.COUNTRIES, role)) { { idsBeforeAdd = null; quickRelated = CatalogKind.COUNTRIES to form.relatedId } } else null)
                 CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono", enabled, KeyboardType.Phone)
                 CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico", enabled, KeyboardType.Email)
                 CatalogField(form.website, { onChange(form.copy(website = it)) }, "Sitio web", enabled, KeyboardType.Uri)
@@ -232,7 +246,7 @@ private fun CatalogFormDialog(
                 CatalogField(form.names, { onChange(form.copy(names = it)) }, "Nombres", enabled)
                 CatalogField(form.surnames, { onChange(form.copy(surnames = it)) }, "Apellidos", enabled)
                 CatalogField(form.title, { onChange(form.copy(title = it)) }, "Cargo", enabled)
-                RelatedSelector("Departamento", relatedDepartments.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.DEPARTMENTS, role)) { { quickRelated = CatalogKind.DEPARTMENTS to null } } else null)
+                RelatedSelector("Departamento", relatedDepartments.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.DEPARTMENTS, role)) { { idsBeforeAdd = relatedDepartments.map { it.id }.toSet(); quickRelated = CatalogKind.DEPARTMENTS to null } } else null, onEdit = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.DEPARTMENTS, role)) { { idsBeforeAdd = null; quickRelated = CatalogKind.DEPARTMENTS to form.relatedId } } else null)
                 CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono", enabled, KeyboardType.Phone)
                 CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico", enabled, KeyboardType.Email)
                 if (editing) Text(form.linkedUserId?.let { "Usuario vinculado #$it. La relación se administra en Usuarios y roles." } ?: "Sin usuario vinculado. La relación se administra en Usuarios y roles.", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
@@ -284,8 +298,8 @@ private fun CatalogField(value: String, onValueChange: (String) -> Unit, label: 
 }
 
 @Composable
-private fun RelatedSelector(label: String, options: List<Pair<Int, String>>, selectedId: Int?, enabled: Boolean, onSelected: (Int) -> Unit, onAdd: (() -> Unit)? = null) {
-    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun RelatedSelector(label: String, options: List<Pair<Int, String>>, selectedId: Int?, enabled: Boolean, onSelected: (Int) -> Unit, onAdd: (() -> Unit)? = null, onEdit: (() -> Unit)? = null) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         EuropartesSelect(
             label = label,
             options = options.map { (id, name) -> SelectOption(id, name) },
@@ -296,7 +310,8 @@ private fun RelatedSelector(label: String, options: List<Pair<Int, String>>, sel
             required = true,
             placeholder = if (options.isEmpty()) "No hay opciones disponibles" else "Seleccionar ${label.lowercase()}",
         )
-        if (onAdd != null) EuropartesButton("Nuevo", onAdd, variant = ButtonVariant.Secondary, enabled = enabled, icon = Icons.Outlined.Add)
+        if (onAdd != null) InlineIconButton(Icons.Outlined.Add, "Nuevo: ${label.lowercase()}", enabled, onAdd)
+        if (onEdit != null) InlineIconButton(Icons.Outlined.Edit, "Editar: ${label.lowercase()}", enabled && selectedId != null, onEdit)
     }
 }
 

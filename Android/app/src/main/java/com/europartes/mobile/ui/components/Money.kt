@@ -54,7 +54,7 @@ fun formatDisplayDate(value: String?): String {
     if (value.isNullOrBlank()) return "—"
     val pattern = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.forLanguageTag("es"))
     runCatching { return java.time.OffsetDateTime.parse(value).format(pattern) }
-    runCatching { return java.time.LocalDateTime.parse(value).format(pattern) }
+    runCatching { return java.time.LocalDateTime.parse(value.trim().replace(" ", "T")).format(pattern) }
     runCatching { return java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("es"))) }
     return value
 }

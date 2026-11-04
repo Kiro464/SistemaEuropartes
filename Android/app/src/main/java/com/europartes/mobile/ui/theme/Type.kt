@@ -2,13 +2,21 @@ package com.europartes.mobile.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import com.europartes.mobile.R
 
-// The web uses IBM Plex Sans. Swapping this value is all that a bundled font would need.
-private val EuropartesSans = FontFamily.SansSerif
+// Same family as the web. Bundled because the system font depends on the device: some phones let
+// the user pick decorative fonts, whose widths would break tables and money columns.
+private val EuropartesSans = FontFamily(
+    Font(R.font.ibm_plex_sans_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_sans_medium, FontWeight.Medium),
+    Font(R.font.ibm_plex_sans_semibold, FontWeight.SemiBold),
+    Font(R.font.ibm_plex_sans_bold, FontWeight.Bold),
+)
 
 private fun style(size: TextUnit, weight: FontWeight, lineHeight: TextUnit, tracking: TextUnit = 0.sp) =
     TextStyle(

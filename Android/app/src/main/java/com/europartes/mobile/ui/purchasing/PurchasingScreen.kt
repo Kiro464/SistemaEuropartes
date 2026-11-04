@@ -41,6 +41,7 @@ import com.europartes.mobile.data.remote.ProductDto
 import com.europartes.mobile.data.remote.RequestLineWrite
 import com.europartes.mobile.data.repository.CatalogItem
 import com.europartes.mobile.data.sync.pendingLabel
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.EmptyState
@@ -115,7 +116,7 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
     val busy = state.isWorking || state.isLoading
 
     LaunchedEffect(sessionKey, role) { viewModel.resetAndLoad(role) }
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 title = "Solicitudes y compras",
@@ -171,25 +172,27 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
         }
     }
 
+    LaunchedEffect(state.savedWrites) { requestCreate = false; requestEditor = null; directPurchase = false; purchaseFrom = null }
+    val formError = state.message.takeIf { state.messageIsError }
     if (requestCreate || requestEditor != null) {
         RequestEditorDialog(
             products = state.products,
             initial = requestEditor,
             isWorking = state.isWorking,
-            onDismiss = { requestCreate = false; requestEditor = null },
+            error = formError,
+            onDismiss = { requestCreate = false; requestEditor = null; viewModel.clearMessage() },
             onSave = { observation, lines ->
                 if (requestEditor == null) viewModel.createRequest(role, observation, lines)
                 else viewModel.updateRequest(role, requestEditor!!.id, observation, lines)
-                requestCreate = false; requestEditor = null
             },
         )
     }
-    if (directPurchase) PurchaseEditorDialog(state.products, state.suppliers, state.isWorking, onDismiss = { directPurchase = false }) { supplier, lines ->
-        viewModel.createPurchase(role, supplier, lines); directPurchase = false
+    if (directPurchase) PurchaseEditorDialog(state.products, state.suppliers, state.isWorking, formError, onDismiss = { directPurchase = false; viewModel.clearMessage() }) { supplier, lines ->
+        viewModel.createPurchase(role, supplier, lines)
     }
     purchaseFrom?.let { request ->
-        PurchaseFromRequestDialog(request, state.suppliers, state.isWorking, onDismiss = { purchaseFrom = null }) { supplier, costs ->
-            viewModel.createPurchaseFromRequest(role, supplier, request.id, costs); purchaseFrom = null
+        PurchaseFromRequestDialog(request, state.suppliers, state.isWorking, formError, onDismiss = { purchaseFrom = null; viewModel.clearMessage() }) { supplier, costs ->
+            viewModel.createPurchaseFromRequest(role, supplier, request.id, costs)
         }
     }
     rejectTarget?.let { id ->
@@ -415,7 +418,7 @@ private fun ProductLineEditor(index: Int, line: DraftLine, products: List<Produc
 }
 
 @Composable
-private fun RequestEditorDialog(products: List<ProductDto>, initial: PurchaseRequestDto?, isWorking: Boolean, onDismiss: () -> Unit, onSave: (String, List<RequestLineWrite>) -> Unit) {
+private fun RequestEditorDialog(products: List<ProductDto>, initial: PurchaseRequestDto?, isWorking: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, List<RequestLineWrite>) -> Unit) {
     var observations by remember(initial?.id) { mutableStateOf(initial?.observations.orEmpty()) }
     var lines by remember(initial?.id) { mutableStateOf(initial?.details?.map { DraftLine(it.productId, it.quantity.toString(), observations = it.observations.orEmpty()) }?.ifEmpty { listOf(DraftLine()) } ?: listOf(DraftLine())) }
     EuropartesDialog(
@@ -440,11 +443,12 @@ private fun RequestEditorDialog(products: List<ProductDto>, initial: PurchaseReq
         }
         EuropartesButton("Agregar producto", { lines = lines + DraftLine() }, variant = ButtonVariant.Secondary, small = true, icon = Icons.Outlined.Add)
         EuropartesTextField(observations, { observations = it }, "Observaciones de la solicitud", multiline = true)
+        error?.let { EuropartesStatusMessage(it, isError = true) }
     }
 }
 
 @Composable
-private fun PurchaseEditorDialog(products: List<ProductDto>, suppliers: List<CatalogItem>, isWorking: Boolean, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseLineWrite>) -> Unit) {
+private fun PurchaseEditorDialog(products: List<ProductDto>, suppliers: List<CatalogItem>, isWorking: Boolean, error: String?, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseLineWrite>) -> Unit) {
     var supplier by remember { mutableStateOf<Int?>(null) }
     var lines by remember { mutableStateOf(listOf(DraftLine())) }
     EuropartesDialog(
@@ -469,11 +473,12 @@ private fun PurchaseEditorDialog(products: List<ProductDto>, suppliers: List<Cat
             }
         }
         EuropartesButton("Agregar producto", { lines = lines + DraftLine() }, variant = ButtonVariant.Secondary, small = true, icon = Icons.Outlined.Add)
+        error?.let { EuropartesStatusMessage(it, isError = true) }
     }
 }
 
 @Composable
-private fun PurchaseFromRequestDialog(request: PurchaseRequestDto, suppliers: List<CatalogItem>, isWorking: Boolean, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseCostWrite>) -> Unit) {
+private fun PurchaseFromRequestDialog(request: PurchaseRequestDto, suppliers: List<CatalogItem>, isWorking: Boolean, error: String?, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseCostWrite>) -> Unit) {
     var supplier by remember { mutableStateOf<Int?>(null) }
     var costs by remember(request.id) { mutableStateOf(request.details.associate { it.productId to "" }) }
     EuropartesDialog(
@@ -498,6 +503,7 @@ private fun PurchaseFromRequestDialog(request: PurchaseRequestDto, suppliers: Li
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
         }
+        error?.let { EuropartesStatusMessage(it, isError = true) }
     }
 }
 

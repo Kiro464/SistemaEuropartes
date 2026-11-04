@@ -34,6 +34,7 @@ import com.europartes.mobile.data.remote.EmployeeDto
 import com.europartes.mobile.data.remote.UserAccountDto
 import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.data.repository.UserAccountWrite
+import com.europartes.mobile.ui.components.rememberScrollToMessage
 import com.europartes.mobile.ui.components.ButtonVariant
 import com.europartes.mobile.ui.components.ConfirmDialog
 import com.europartes.mobile.ui.components.EmptyState
@@ -94,7 +95,7 @@ fun SecurityAdminScreen(
         }
     }
 
-    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+    LazyColumn(modifier, state = rememberScrollToMessage(state.error ?: state.message), contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
         item {
             PageHeader(
                 title = "Usuarios y roles",

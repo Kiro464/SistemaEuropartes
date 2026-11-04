@@ -25,7 +25,7 @@ data class SaleTicket(
 private fun escape(value: String) = value
     .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-fun SaleTicket.issuedAtText(): String = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(issuedAtEpochMs))
+fun SaleTicket.issuedAtText(): String = java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.forLanguageTag("es")).format(java.util.Date(issuedAtEpochMs))
 
 /** 80 mm receipt, the format the web sends to the printer. */
 private fun SaleTicket.toHtml(money: MoneyFormat): String {
