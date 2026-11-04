@@ -14,7 +14,26 @@ import com.europartes.mobile.data.repository.CatalogItem
 import com.europartes.mobile.data.repository.CatalogKind
 import com.europartes.mobile.data.repository.CatalogRepository
 import com.europartes.mobile.data.repository.EuropartesRoles
+import com.europartes.mobile.data.remote.EmployeeDto
+import com.europartes.mobile.data.remote.StateWriteRequest
+import com.europartes.mobile.data.remote.SupplierDto
 import com.europartes.mobile.data.repository.OfflineCatalogRepository
+import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
+import com.europartes.mobile.data.repository.withRelations
+import com.europartes.mobile.data.repository.writeBody
+import com.europartes.mobile.data.sync.DecodedOperation
+import com.europartes.mobile.data.sync.OfflineDataPrefetcher
+import com.europartes.mobile.data.sync.OutboxRepository
+import com.europartes.mobile.data.sync.PendingAction
+import com.europartes.mobile.data.sync.PendingDisplay
+import com.europartes.mobile.data.sync.PendingModule
+import com.europartes.mobile.data.sync.SyncCoordinator
+import com.europartes.mobile.data.sync.applyPendingCatalog
+import com.europartes.mobile.data.sync.canUseOfflineCopy
+import com.europartes.mobile.data.sync.neverReachedServer
+import com.europartes.mobile.data.sync.pendingCatalogForm
+import com.europartes.mobile.data.sync.pendingIds
+import com.europartes.mobile.data.sync.pendingModuleFor
 import com.europartes.mobile.ui.navigation.canManageCatalog
 import com.europartes.mobile.ui.navigation.canReadCatalog
 import java.io.IOException
@@ -44,6 +63,7 @@ data class CatalogsUiState(
     val editingId: Int? = null,
     val form: CatalogForm = CatalogForm(),
     val confirming: CatalogItem? = null,
+    val pendingIds: Set<Int> = emptySet(),
 )
 
 class CatalogsViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,8 +75,30 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
     val state: StateFlow<CatalogsUiState> = _state.asStateFlow()
     private var activeRole: String? = null
     private var catalogLoadJob: Job? = null
+    private val outbox = OutboxRepository(database.pendingOperationDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+    private val moduleStore = OfflineModuleSnapshotStore(database.offlineModuleSnapshotDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+
+    private suspend fun pendingOperations(): List<DecodedOperation> = runCatching {
+        outbox.visibleFor(PendingModule.BRAND, PendingModule.SUPPLIER, PendingModule.COUNTRY, PendingModule.DEPARTMENT, PendingModule.EMPLOYEE)
+    }.getOrDefault(emptyList())
+
+    private fun List<CountryDto>.withPendingCountries(pending: List<DecodedOperation>): List<CountryDto> =
+        applyPendingCatalog(CatalogKind.COUNTRIES, map { CatalogItem(it.id, it.name) }, pending).map { CountryDto(it.id, it.title) }
+
+    private fun List<DepartmentDto>.withPendingDepartments(pending: List<DecodedOperation>): List<DepartmentDto> =
+        applyPendingCatalog(CatalogKind.DEPARTMENTS, map { CatalogItem(it.id, it.name, it.description, registeredAt = it.registeredAt) }, pending)
+            .map { DepartmentDto(it.id, it.title, it.subtitle.orEmpty(), it.registeredAt) }
 
     init {
+        viewModelScope.launch {
+            SyncCoordinator.dataChanged.collect {
+                if (_state.value.message?.startsWith(com.europartes.mobile.data.sync.OFFLINE_SAVED_PREFIX) == true) clearMessage()
+                val current = _state.value
+                if (current.hasLoaded && !current.isLoading && !current.isWorking && !current.formOpen) {
+                    activeRole?.let { load(it, current.includeInactive) }
+                }
+            }
+        }
         viewModelScope.launch {
             var wasOnline = NetworkAvailability.hasValidatedInternet(getApplication<Application>())
             NetworkAvailability.observe(getApplication<Application>()).collect { isOnline ->
@@ -96,19 +138,21 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
                     val fetchedAt = localCatalogs.saveCatalog(role, current.kind, mayIncludeInactive, relatedRows)
                     if (current.kind == CatalogKind.SUPPLIERS && countries.isNotEmpty()) localCatalogs.saveCountries(role, countries)
                     if (current.kind == CatalogKind.EMPLOYEES && departments.isNotEmpty()) localCatalogs.saveDepartments(role, departments)
-                    _state.value = _state.value.copy(isLoading = false, items = relatedRows, countries = countries, departments = departments, error = null, hasLoaded = true, isShowingOfflineSnapshot = false, snapshotFetchedAtEpochMs = fetchedAt)
+                    val pending = pendingOperations()
+                    _state.value = _state.value.copy(isLoading = false, items = applyPendingCatalog(current.kind, relatedRows, pending, mayIncludeInactive), pendingIds = pendingIds(pendingModuleFor(current.kind), pending), countries = countries.withPendingCountries(pending), departments = departments.withPendingDepartments(pending), error = null, hasLoaded = true, isShowingOfflineSnapshot = false, snapshotFetchedAtEpochMs = fetchedAt)
                 },
                 onFailure = { error ->
                     if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, current.kind)
+                    val pending = pendingOperations()
                     val cached = if (!error.isAuthorizationFailure() && error.isTransportFailure()) runCatching { localCatalogs.catalog(role, current.kind, mayIncludeInactive) }.getOrNull() else null
                     _state.value = if (cached != null) {
                         val staleLabel = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(cached.second))
                         val cachedCountries = runCatching { localCatalogs.countries(role) }.getOrNull()
                         val cachedDepartments = runCatching { localCatalogs.departments(role) }.getOrNull()
-                        _state.value.copy(isLoading = false, items = cached.first, error = null, hasLoaded = true, isShowingOfflineSnapshot = true, snapshotFetchedAtEpochMs = cached.second, countries = cachedCountries ?: current.countries, departments = cachedDepartments ?: current.departments, message = "Sin conexión · datos guardados el $staleLabel.", messageIsError = false)
+                        _state.value.copy(isLoading = false, items = applyPendingCatalog(current.kind, cached.first, pending, mayIncludeInactive), pendingIds = pendingIds(pendingModuleFor(current.kind), pending), error = null, hasLoaded = true, isShowingOfflineSnapshot = true, snapshotFetchedAtEpochMs = cached.second, countries = (cachedCountries ?: current.countries).withPendingCountries(pending), departments = (cachedDepartments ?: current.departments).withPendingDepartments(pending), message = _state.value.message ?: "Sin conexión · datos guardados el $staleLabel.", messageIsError = false)
                     } else _state.value.copy(
                         isLoading = false,
-                        error = if (error.isTransportFailure()) "Sin conexión y todavía no hay una copia descargada de este catálogo." else error.message ?: "No se pudo cargar el catálogo.",
+                        error = if (error.isTransportFailure()) "Sin conexión; este catálogo aún no termina de descargarse." else error.message ?: "No se pudo cargar el catálogo.",
                         hasLoaded = true,
                         isShowingOfflineSnapshot = false,
                     )
@@ -132,21 +176,56 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             val relatedError = loadRelated(current.kind, role)
+            val queued = pendingCatalogForm(current.kind, item.id, pendingOperations())
+            if (queued != null) {
+                _state.value = _state.value.copy(isLoading = false, formOpen = true, editingId = item.id, form = queued, message = relatedError, messageIsError = relatedError != null)
+                return@launch
+            }
             repository.form(current.kind, item.id).fold(
                 onSuccess = { form -> _state.value = _state.value.copy(isLoading = false, formOpen = true, editingId = item.id, form = form, message = relatedError, messageIsError = relatedError != null) },
-                onFailure = { error -> _state.value = _state.value.copy(isLoading = false, message = error.message ?: "No se pudo abrir el registro.", messageIsError = true) },
+                onFailure = { error ->
+                    val saved = if (error.isTransportFailure()) savedForm(role, current.kind, item) else null
+                    _state.value = if (saved != null) _state.value.copy(isLoading = false, formOpen = true, editingId = item.id, form = saved, message = relatedError, messageIsError = relatedError != null)
+                    else _state.value.copy(isLoading = false, message = error.message ?: "No se pudo abrir el registro.", messageIsError = true)
+                },
             )
         }
     }
 
+    /** Rebuilds an edit form from Room when the server cannot be reached. */
+    private suspend fun savedForm(role: String, kind: CatalogKind, item: CatalogItem): CatalogForm? = when (kind) {
+        CatalogKind.BRANDS, CatalogKind.COUNTRIES -> CatalogForm(name = item.title)
+        CatalogKind.DEPARTMENTS -> CatalogForm(name = item.title, description = item.subtitle.orEmpty())
+        CatalogKind.SUPPLIERS -> moduleStore.readList(role, OfflineDataPrefetcher.RAW_SUPPLIERS, emptyMap(), SupplierDto::class.java)
+            ?.first?.firstOrNull { it.id == item.id }
+            ?.let { CatalogForm(it.name, phone = it.phone, email = it.email, website = it.website, relatedId = it.countryId, active = it.active) }
+        CatalogKind.EMPLOYEES -> moduleStore.readList(role, OfflineDataPrefetcher.RAW_EMPLOYEES, emptyMap(), EmployeeDto::class.java)
+            ?.first?.firstOrNull { it.id == item.id }
+            ?.let { CatalogForm(names = it.names, surnames = it.surnames, title = it.title, phone = it.phone, email = it.email, relatedId = it.departmentId, active = it.active, linkedUserId = it.userId) }
+    }
+
     private suspend fun loadRelated(kind: CatalogKind, role: String): String? = when (kind) {
             CatalogKind.SUPPLIERS -> repository.countries().fold(
-                onSuccess = { localCatalogs.saveCountries(role, it); _state.value = _state.value.copy(countries = it); null },
-                onFailure = { error -> if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, "catalog:country-options"); if (!error.isAuthorizationFailure() && error.isTransportFailure()) runCatching { localCatalogs.countries(role) }.getOrNull()?.let { _state.value = _state.value.copy(countries = it); null } ?: (error.message ?: "No se pudieron cargar los países.") else error.message ?: "No se pudieron cargar los países." },
+                onSuccess = { localCatalogs.saveCountries(role, it); _state.value = _state.value.copy(countries = it.withPendingCountries(pendingOperations())); null },
+                onFailure = { error ->
+                    if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, "catalog:country-options")
+                    val saved = if (error.isTransportFailure()) runCatching { localCatalogs.countries(role) }.getOrNull() else null
+                    if (saved != null) {
+                        _state.value = _state.value.copy(countries = saved.withPendingCountries(pendingOperations()))
+                        null
+                    } else error.message ?: "No se pudieron cargar los países."
+                },
             )
             CatalogKind.EMPLOYEES -> repository.departments().fold(
-                onSuccess = { localCatalogs.saveDepartments(role, it); _state.value = _state.value.copy(departments = it); null },
-                onFailure = { error -> if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, "catalog:department-options"); if (!error.isAuthorizationFailure() && error.isTransportFailure()) runCatching { localCatalogs.departments(role) }.getOrNull()?.let { _state.value = _state.value.copy(departments = it); null } ?: (error.message ?: "No se pudieron cargar los departamentos.") else error.message ?: "No se pudieron cargar los departamentos." },
+                onSuccess = { localCatalogs.saveDepartments(role, it); _state.value = _state.value.copy(departments = it.withPendingDepartments(pendingOperations())); null },
+                onFailure = { error ->
+                    if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, "catalog:department-options")
+                    val saved = if (error.isTransportFailure()) runCatching { localCatalogs.departments(role) }.getOrNull() else null
+                    if (saved != null) {
+                        _state.value = _state.value.copy(departments = saved.withPendingDepartments(pendingOperations()))
+                        null
+                    } else error.message ?: "No se pudieron cargar los departamentos."
+                },
             )
             else -> null
     }
@@ -168,11 +247,31 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun Throwable.isTransportFailure(): Boolean =
-        generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable.isTransportFailure(): Boolean = canUseOfflineCopy()
+
+    private suspend fun mustQueue(id: Int?): Boolean =
+        id?.let { it < 0 } == true || !NetworkAvailability.hasValidatedInternet(getApplication<Application>()) || outbox.hasUnsent()
+
+    private suspend fun queueChange(role: String, kind: CatalogKind, action: String, id: Int?, payload: Any?, display: PendingDisplay) {
+        try {
+            outbox.enqueue(role, pendingModuleFor(kind), action, id ?: outbox.newTemporaryId(), payload, display)
+            SyncCoordinator.request(getApplication<Application>())
+            _state.value = _state.value.copy(isWorking = false, formOpen = false, message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", messageIsError = false)
+            load(role)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _state.value = _state.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar el cambio.", messageIsError = true)
+        }
+    }
 
     private fun Throwable.isAuthorizationFailure(): Boolean =
         generateSequence(this) { it.cause }.filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
+
+    /** Refreshes the options of the open form after adding one from its shortcut. */
+    fun openRelatedRefresh(role: String) {
+        viewModelScope.launch { loadRelated(_state.value.kind, role) }
+    }
 
     fun updateForm(form: CatalogForm) { _state.value = _state.value.copy(form = form) }
     fun closeForm() { if (!_state.value.isWorking) _state.value = _state.value.copy(formOpen = false, message = null, messageIsError = false) }
@@ -195,13 +294,26 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
         if (invalid != null) { _state.value = current.copy(message = invalid, messageIsError = true); return }
         viewModelScope.launch {
             _state.value = _state.value.copy(isWorking = true, message = null, messageIsError = false)
+            val action = if (current.editingId == null) PendingAction.CREATE else PendingAction.UPDATE
+            val name = current.form.name.ifBlank { "${current.form.names} ${current.form.surnames}".trim() }
+            val related = when (current.kind) {
+                CatalogKind.SUPPLIERS -> current.countries.firstOrNull { it.id == current.form.relatedId }?.name
+                CatalogKind.EMPLOYEES -> current.departments.firstOrNull { it.id == current.form.relatedId }?.name
+                else -> null
+            }
+            val display = PendingDisplay("${if (current.editingId == null) "Crear" else "Editar"}: $name", related?.let { mapOf("relacion" to it) }.orEmpty())
+            val body = current.form.writeBody(current.kind)
+            if (mustQueue(current.editingId)) { queueChange(role, current.kind, action, current.editingId, body, display); return@launch }
             repository.save(current.kind, current.editingId, current.form).fold(
                 onSuccess = {
                     invalidateCatalogSnapshots(role, current.kind)
-                    _state.value = _state.value.copy(isWorking = false, formOpen = false, message = if (current.editingId == null) "${current.kind.label} creado en el servidor." else "${current.kind.label} actualizado en el servidor.", messageIsError = false)
+                    _state.value = _state.value.copy(isWorking = false, formOpen = false, message = if (current.editingId == null) "Registro creado en el servidor." else "Registro actualizado en el servidor.", messageIsError = false)
                     load(role)
                 },
-                onFailure = { error -> _state.value = _state.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar el registro.", messageIsError = true) },
+                onFailure = { error ->
+                    if (error.neverReachedServer()) queueChange(role, current.kind, action, current.editingId, body, display)
+                    else _state.value = _state.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar el registro.", messageIsError = true)
+                },
             )
         }
     }
@@ -212,18 +324,26 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
         if (!canManageCatalog(current.kind, role) || current.isWorking) return
         viewModelScope.launch {
             _state.value = _state.value.copy(isWorking = true, confirming = null, message = null, messageIsError = false)
-            val result = if (current.kind == CatalogKind.EMPLOYEES && item.active == false) repository.reactivateEmployee(item.id) else repository.delete(current.kind, item.id)
+            val reactivating = current.kind == CatalogKind.EMPLOYEES && item.active == false
+            val action = if (reactivating) PendingAction.SET_ACTIVE else PendingAction.DELETE
+            val payload = if (reactivating) StateWriteRequest(true) else null
+            val display = PendingDisplay("${if (reactivating) "Reactivar" else "Eliminar"}: ${item.title}")
+            if (mustQueue(item.id)) { queueChange(role, current.kind, action, item.id, payload, display); return@launch }
+            val result = if (reactivating) repository.reactivateEmployee(item.id) else repository.delete(current.kind, item.id)
             result.fold(
                 onSuccess = {
                     invalidateCatalogSnapshots(role, current.kind)
                     _state.value = _state.value.copy(isWorking = false, message = when {
                         current.kind == CatalogKind.EMPLOYEES && item.active == false -> "Empleado reactivado en el servidor."
                         current.kind == CatalogKind.EMPLOYEES -> "Empleado desactivado en el servidor."
-                        else -> "${current.kind.label} eliminado en el servidor."
+                        else -> "Registro eliminado en el servidor."
                     }, messageIsError = false)
                     load(role)
                 },
-                onFailure = { error -> _state.value = _state.value.copy(isWorking = false, message = error.message ?: "No se pudo completar la operación.", messageIsError = true) },
+                onFailure = { error ->
+                    if (error.neverReachedServer()) queueChange(role, current.kind, action, item.id, payload, display)
+                    else _state.value = _state.value.copy(isWorking = false, message = error.message ?: "No se pudo completar la operación.", messageIsError = true)
+                },
             )
         }
     }
@@ -233,18 +353,5 @@ class CatalogsViewModel(application: Application) : AndroidViewModel(application
         CatalogKind.DEPARTMENTS -> when { form.name.isBlank() -> "El nombre es obligatorio."; form.name.length > 100 -> "El nombre admite hasta 100 caracteres."; form.description.isBlank() -> "La descripción es obligatoria."; form.description.length > 255 -> "La descripción admite hasta 255 caracteres."; else -> null }
         CatalogKind.SUPPLIERS -> when { form.name.isBlank() -> "El nombre es obligatorio."; form.relatedId == null -> "Selecciona un país."; form.phone.isBlank() -> "El teléfono es obligatorio."; form.email.isBlank() -> "El correo es obligatorio."; form.website.isBlank() -> "El sitio web es obligatorio."; else -> null }
         CatalogKind.EMPLOYEES -> when { form.names.isBlank() -> "Los nombres son obligatorios."; form.surnames.isBlank() -> "Los apellidos son obligatorios."; form.title.isBlank() -> "El cargo es obligatorio."; form.phone.isBlank() -> "El teléfono es obligatorio."; form.email.isBlank() -> "El correo es obligatorio."; form.relatedId == null -> "Selecciona un departamento."; else -> null }
-    }
-
-    private fun List<CatalogItem>.withRelations(kind: CatalogKind, countries: List<CountryDto>, departments: List<DepartmentDto>) = map { item ->
-        val relatedName = when (kind) {
-            CatalogKind.SUPPLIERS -> item.relatedId?.let { id -> countries.firstOrNull { it.id == id }?.name }
-            CatalogKind.EMPLOYEES -> item.relatedId?.let { id -> departments.firstOrNull { it.id == id }?.name }
-            else -> null
-        }
-        item.copy(subtitle = when {
-            relatedName == null -> item.subtitle
-            kind == CatalogKind.EMPLOYEES -> "${item.subtitle} · $relatedName"
-            else -> relatedName
-        })
     }
 }

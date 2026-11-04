@@ -2,32 +2,106 @@ package com.europartes.mobile.ui.purchasing
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.ShoppingCart
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
-import com.europartes.mobile.data.remote.*
+import com.europartes.mobile.data.remote.PurchaseCostWrite
+import com.europartes.mobile.data.remote.PurchaseDto
+import com.europartes.mobile.data.remote.PurchaseHistoryDto
+import com.europartes.mobile.data.remote.PurchaseLineWrite
+import com.europartes.mobile.data.remote.PurchaseRequestDto
+import com.europartes.mobile.data.remote.ProductDto
+import com.europartes.mobile.data.remote.RequestLineWrite
 import com.europartes.mobile.data.repository.CatalogItem
+import com.europartes.mobile.data.sync.pendingLabel
+import com.europartes.mobile.ui.components.ButtonVariant
+import com.europartes.mobile.ui.components.ConfirmDialog
+import com.europartes.mobile.ui.components.EmptyState
+import com.europartes.mobile.ui.components.EuropartesButton
+import com.europartes.mobile.ui.components.EuropartesCard
+import com.europartes.mobile.ui.components.EuropartesDateField
+import com.europartes.mobile.ui.components.EuropartesDialog
+import com.europartes.mobile.ui.components.EuropartesSearchField
+import com.europartes.mobile.ui.components.EuropartesSelect
 import com.europartes.mobile.ui.components.EuropartesStatusMessage
+import com.europartes.mobile.ui.components.EuropartesTabs
+import com.europartes.mobile.ui.components.EuropartesTextField
+import com.europartes.mobile.ui.components.LabeledValue
+import com.europartes.mobile.ui.components.LoadingState
+import com.europartes.mobile.ui.components.LocalMoney
+import com.europartes.mobile.ui.components.MetaGrid
+import com.europartes.mobile.ui.components.PageHeader
+import com.europartes.mobile.ui.components.PagePadding
+import com.europartes.mobile.ui.components.RecordActions
+import com.europartes.mobile.ui.components.RecordHeader
+import com.europartes.mobile.ui.components.SectionGap
+import com.europartes.mobile.ui.components.SelectOption
+import com.europartes.mobile.ui.components.StatusPill
+import com.europartes.mobile.ui.components.formatDisplayDate
+import com.europartes.mobile.ui.components.purchaseStatusLabel
+import com.europartes.mobile.ui.components.purchaseStatusTone
+import com.europartes.mobile.ui.theme.EuropartesTheme
 
-private enum class PurchasingTab(val title: String) { REQUESTS("Solicitudes"), PURCHASES("Compras"), HISTORY("Historial") }
+/** Approval and reception change stock and invoices, so they need the server's answer right away. */
+private val onlineOnlyActions = setOf("approve", "receive")
+
+private enum class PurchasingTab { REQUESTS, PURCHASES }
 private data class DraftLine(val productId: Int? = null, val quantity: String = "1", val cost: String = "", val observations: String = "")
+
+private val purchaseStates = listOf("REALIZADA", "EN_PROCESO", "PROCESADA", "ENTREGADA_AL_ALMACEN", "CANCELADA")
+
+@Composable
+private fun PurchaseStatusPill(status: String) = StatusPill(purchaseStatusLabel(status), purchaseStatusTone(status))
+
+@Composable
+private fun ProductLines(lines: List<Pair<String, Int>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        lines.forEach { (name, quantity) ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text("× $quantity", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
 
 @Composable
 fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: Int, modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsState()
     val canRequests = role in PurchasingViewModel.requestRoles
     val canPurchases = role in PurchasingViewModel.purchaseRoles
-    val tabs = buildList { if (canRequests) add(PurchasingTab.REQUESTS); if (canPurchases) { add(PurchasingTab.PURCHASES); add(PurchasingTab.HISTORY) } }
-    var selectedTab by remember(sessionKey, tabs) { mutableStateOf(tabs.firstOrNull() ?: PurchasingTab.PURCHASES) }
+    val tabs = buildList {
+        if (canRequests) add(PurchasingTab.REQUESTS to "Solicitudes · ${state.requests.size}")
+        if (canPurchases) add(PurchasingTab.PURCHASES to "Órdenes de compra · ${state.purchases.size}")
+    }
+    var selectedTab by remember(sessionKey, canRequests) { mutableStateOf(if (canRequests) PurchasingTab.REQUESTS else PurchasingTab.PURCHASES) }
     var requestEditor by remember { mutableStateOf<PurchaseRequestDto?>(null) }
     var requestCreate by remember { mutableStateOf(false) }
     var directPurchase by remember { mutableStateOf(false) }
@@ -35,67 +109,65 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
     var pendingAction by remember { mutableStateOf<Pair<String, Int>?>(null) }
     var rejectTarget by remember { mutableStateOf<Int?>(null) }
     var rejectionReason by remember { mutableStateOf("") }
-    var historyDetail by remember { mutableStateOf<PurchaseHistoryDto?>(null) }
     var requestDetail by remember { mutableStateOf<PurchaseRequestDto?>(null) }
     var purchaseDetail by remember { mutableStateOf<PurchaseDto?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
-    var exportBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var exportMessage by remember { mutableStateOf<String?>(null) }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
-        val bytes = exportBytes
-        if (uri != null && bytes != null) {
-            runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("No se pudo abrir el archivo seleccionado.") }
-                .onSuccess { exportMessage = "Historial guardado." }
-                .onFailure { exportMessage = it.message ?: "No se pudo guardar el archivo." }
-        }
-        exportBytes = null
-    }
+    val busy = state.isWorking || state.isLoading
 
     LaunchedEffect(sessionKey, role) { viewModel.resetAndLoad(role) }
-    Column(modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text("Abastecimiento", style = MaterialTheme.typography.headlineSmall)
-        Text("Solicitudes, compras y recepción confirmadas por el servidor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (state.isWorking) Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-            Text("Procesando operación…", style = MaterialTheme.typography.bodySmall)
+    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+        item {
+            PageHeader(
+                title = "Solicitudes y compras",
+                description = "Gestión del abastecimiento, aprobación y recepción de compras.",
+                actions = {
+                    if (role == PurchasingViewModel.VENDOR) EuropartesButton("Nueva solicitud", { requestCreate = true }, enabled = !state.isWorking, icon = Icons.Outlined.Add)
+                    if (role == PurchasingViewModel.COORDINATOR) EuropartesButton("Compra directa", { directPurchase = true }, enabled = !state.isWorking, icon = Icons.Outlined.Add)
+                    EuropartesButton(if (state.isLoading) "Actualizando…" else "Actualizar", { viewModel.refresh(role) }, variant = ButtonVariant.Secondary, enabled = !busy, icon = Icons.Outlined.Refresh)
+                },
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        if (tabs.size > 1) {
-            ScrollableTabRow(selectedTabIndex = tabs.indexOf(selectedTab).coerceAtLeast(0), edgePadding = 0.dp) {
-                tabs.forEachIndexed { index, tab -> Tab(selected = selectedTab == tab, onClick = { selectedTab = tab }, text = { Text(tab.title) }) }
-            }
-        }
-        state.message?.let { Text(it, color = if (state.messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
-        state.offlineNotice?.let { EuropartesStatusMessage(it, false) }
-        exportMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 6.dp)) }
-        detailError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 6.dp)) }
+        if (tabs.size > 1) item { EuropartesTabs(tabs, selectedTab, { selectedTab = it }) }
+        if (state.isWorking) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        state.message?.let { item { EuropartesStatusMessage(it, state.messageIsError, onDismiss = viewModel::clearMessage) } }
+        state.offlineNotice?.let { item { EuropartesStatusMessage(it, false) } }
+        detailError?.let { item { EuropartesStatusMessage(it, true, onDismiss = { detailError = null }) } }
         state.error?.let { message ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) { Column(Modifier.padding(16.dp)) {
-                Text(message, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { viewModel.refresh(role) }) { Text("Volver a cargar") }
-            } }
-        }
-        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(enabled = !state.isWorking && !state.isLoading, onClick = { viewModel.refresh(role) }) { Text("Actualizar") }
-            if (selectedTab == PurchasingTab.REQUESTS && role == PurchasingViewModel.VENDOR) {
-                Button(enabled = !state.isWorking, onClick = { requestCreate = true }) { Text("Nueva solicitud") }
-            }
-            if (selectedTab == PurchasingTab.PURCHASES && role == PurchasingViewModel.COORDINATOR) {
-                Button(enabled = !state.isWorking, onClick = { directPurchase = true }) { Text("Nueva compra") }
+            item {
+                EuropartesCard {
+                    EuropartesStatusMessage(message, true)
+                    EuropartesButton("Volver a cargar", { viewModel.refresh(role) }, variant = ButtonVariant.Secondary, small = true)
+                }
             }
         }
-        when (selectedTab) {
-            PurchasingTab.REQUESTS -> RequestList(state, role, onEdit = { requestEditor = it }, onDelete = { pendingAction = "delete_request" to it.id }, onAccept = { pendingAction = "accept_request" to it.id }, onReject = { rejectTarget = it.id }, onCreatePurchase = { purchaseFrom = it }, onDetail = { id -> detailError = null; viewModel.requestDetail(id) { result -> result.fold({ requestDetail = it }, { detailError = it.message }) } })
-            PurchasingTab.PURCHASES -> PurchaseList(state, role, onAction = { action, id -> pendingAction = action to id }, onDetail = { id -> detailError = null; viewModel.purchaseDetail(id) { result -> result.fold({ purchaseDetail = it }, { detailError = it.message }) } })
-            PurchasingTab.HISTORY -> HistoryList(state, onFilter = { viewModel.applyHistoryFilters(role, it) }, onDetail = { item -> detailError = null; viewModel.historyDetail(item.id) { result -> result.fold({ historyDetail = it }, { detailError = it.message }) } }, onExport = { filters ->
-                exportMessage = null
-                viewModel.exportHistory(filters) { result -> result.fold(
-                    onSuccess = { bytes -> exportBytes = bytes; exportLauncher.launch("historial_compras.xlsx") },
-                    onFailure = { error -> exportMessage = error.message ?: "No se pudo exportar el historial." },
-                ) }
-            })
+        val isEmpty = if (selectedTab == PurchasingTab.REQUESTS) state.requests.isEmpty() else state.purchases.isEmpty()
+        when {
+            state.isLoading && isEmpty -> item { LoadingState("Cargando abastecimiento…") }
+            isEmpty && state.error == null -> item {
+                EmptyState(
+                    if (selectedTab == PurchasingTab.REQUESTS) "Sin solicitudes" else "Sin órdenes de compra",
+                    if (selectedTab == PurchasingTab.REQUESTS) "Las solicitudes de compra aparecerán aquí." else "Las compras generadas aparecerán aquí.",
+                    icon = Icons.Outlined.ShoppingCart,
+                )
+            }
+            selectedTab == PurchasingTab.REQUESTS -> items(state.requests, key = { it.id }) { request ->
+                RequestCard(
+                    request, state, role,
+                    onEdit = { requestEditor = request },
+                    onDelete = { pendingAction = "delete_request" to request.id },
+                    onAccept = { pendingAction = "accept_request" to request.id },
+                    onReject = { rejectTarget = request.id },
+                    onCreatePurchase = { purchaseFrom = request },
+                    onDetail = { detailError = null; viewModel.requestDetail(request.id) { result -> result.fold({ requestDetail = it }, { detailError = it.message }) } },
+                )
+            }
+            else -> items(state.purchases, key = { it.id }) { purchase ->
+                PurchaseCard(
+                    purchase, state, role,
+                    onAction = { action -> pendingAction = action to purchase.id },
+                    onDetail = { detailError = null; viewModel.purchaseDetail(purchase.id) { result -> result.fold({ purchaseDetail = it }, { detailError = it.message }) } },
+                )
+            }
         }
     }
 
@@ -115,18 +187,38 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
     if (directPurchase) PurchaseEditorDialog(state.products, state.suppliers, state.isWorking, onDismiss = { directPurchase = false }) { supplier, lines ->
         viewModel.createPurchase(role, supplier, lines); directPurchase = false
     }
-    purchaseFrom?.let { request -> PurchaseFromRequestDialog(request, state.suppliers, state.isWorking, onDismiss = { purchaseFrom = null }) { supplier, costs ->
-        viewModel.createPurchaseFromRequest(role, supplier, request.id, costs); purchaseFrom = null
-    } }
+    purchaseFrom?.let { request ->
+        PurchaseFromRequestDialog(request, state.suppliers, state.isWorking, onDismiss = { purchaseFrom = null }) { supplier, costs ->
+            viewModel.createPurchaseFromRequest(role, supplier, request.id, costs); purchaseFrom = null
+        }
+    }
     rejectTarget?.let { id ->
-        AlertDialog(onDismissRequest = { rejectTarget = null }, title = { Text("Rechazar solicitud #$id") }, text = {
-            OutlinedTextField(rejectionReason, { rejectionReason = it }, label = { Text("Observaciones") }, modifier = Modifier.fillMaxWidth())
-        }, confirmButton = { TextButton(enabled = !state.isWorking, onClick = { viewModel.rejectRequest(role, id, rejectionReason); rejectTarget = null; rejectionReason = "" }) { Text("Rechazar") } }, dismissButton = { TextButton(onClick = { rejectTarget = null }) { Text("Cancelar") } })
+        EuropartesDialog(
+            title = "Rechazar solicitud ${pendingLabel(id)}",
+            onDismiss = { rejectTarget = null },
+            footer = {
+                EuropartesButton("Cancelar", { rejectTarget = null }, variant = ButtonVariant.Secondary)
+                EuropartesButton("Rechazar", { viewModel.rejectRequest(role, id, rejectionReason); rejectTarget = null; rejectionReason = "" }, variant = ButtonVariant.Danger, enabled = !state.isWorking)
+            },
+        ) { EuropartesTextField(rejectionReason, { rejectionReason = it }, "Observaciones", multiline = true) }
     }
     pendingAction?.let { (action, id) ->
-        val label = when (action) { "delete_request" -> "eliminar esta solicitud"; "accept_request" -> "aceptar esta solicitud"; "start" -> "iniciar esta compra"; "cancel" -> "cancelar esta compra"; "approve" -> "aprobar la compra y generar su factura"; else -> "recibir todos los productos de esta compra y actualizar inventario" }
-        AlertDialog(onDismissRequest = { if (!state.isWorking) pendingAction = null }, title = { Text("Confirmar operación") }, text = { Text("¿Deseas $label? Esta operación se enviará una sola vez al servidor.") }, confirmButton = {
-            TextButton(enabled = !state.isWorking, onClick = {
+        val (title, confirmText, danger) = when (action) {
+            "delete_request" -> Triple("Eliminar esta solicitud", "Eliminar", true)
+            "accept_request" -> Triple("Aceptar esta solicitud", "Aceptar", false)
+            "start" -> Triple("Iniciar esta compra", "Iniciar", false)
+            "cancel" -> Triple("Cancelar esta compra", "Cancelar compra", true)
+            "approve" -> Triple("Aprobar la compra y generar su factura", "Aprobar", false)
+            else -> Triple("Registrar la recepción y actualizar el inventario", "Registrar recepción", false)
+        }
+        ConfirmDialog(
+            title = title,
+            message = if (action in onlineOnlyActions) "Esta operación se enviará una sola vez al servidor." else "Si no hay conexión, se enviará al recuperarla.",
+            confirmText = confirmText,
+            dismissText = "Volver",
+            danger = danger,
+            busy = state.isWorking,
+            onConfirm = {
                 when (action) {
                     "delete_request" -> viewModel.deleteRequest(role, id)
                     "accept_request" -> viewModel.acceptRequest(role, id)
@@ -136,229 +228,341 @@ fun PurchasingScreen(viewModel: PurchasingViewModel, role: String, sessionKey: I
                     "receive" -> viewModel.receivePurchase(role, id)
                 }
                 pendingAction = null
-            }) { Text(if (state.isWorking) "Procesando…" else "Confirmar") }
-        }, dismissButton = { TextButton(enabled = !state.isWorking, onClick = { pendingAction = null }) { Text("Cancelar") } })
+            },
+            onDismiss = { pendingAction = null },
+        )
     }
-    historyDetail?.let { HistoryDetailDialog(it) { historyDetail = null } }
     requestDetail?.let { RequestDetailDialog(it) { requestDetail = null } }
     purchaseDetail?.let { PurchaseDetailDialog(it) { purchaseDetail = null } }
 }
 
 @Composable
-private fun RequestList(state: PurchasingUiState, role: String, onEdit: (PurchaseRequestDto) -> Unit, onDelete: (PurchaseRequestDto) -> Unit, onAccept: (PurchaseRequestDto) -> Unit, onReject: (PurchaseRequestDto) -> Unit, onCreatePurchase: (PurchaseRequestDto) -> Unit, onDetail: (Int) -> Unit) {
-    if (state.requests.isEmpty() && !state.isLoading && state.error == null) EmptyPurchasingState("No hay solicitudes para mostrar.")
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-        items(state.requests, key = { it.id }) { request ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Solicitud #${request.id}", style = MaterialTheme.typography.titleMedium); StatusPill(request.status) }
-                Text("${request.date.orEmpty()} · Empleado #${request.employeeId ?: "—"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                request.observations?.takeIf(String::isNotBlank)?.let { Text(it, Modifier.padding(top = 6.dp)) }
-                request.details.forEach { Text("${it.productName} · ${it.quantity} u.", Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium) }
-                TextButton(enabled = !state.isWorking, onClick = { onDetail(request.id) }) { Text("Consultar detalle del servidor") }
-                if (role == PurchasingViewModel.VENDOR && request.status == "PENDIENTE") Row {
-                    TextButton(enabled = !state.isWorking, onClick = { onEdit(request) }) { Text("Editar") }
-                    TextButton(enabled = !state.isWorking, onClick = { onDelete(request) }) { Text("Eliminar") }
-                }
-                if (role == PurchasingViewModel.COORDINATOR && request.status == "PENDIENTE") Row {
-                    TextButton(enabled = !state.isWorking, onClick = { onAccept(request) }) { Text("Aceptar") }
-                    TextButton(enabled = !state.isWorking, onClick = { onReject(request) }) { Text("Rechazar") }
-                }
-                if (role == PurchasingViewModel.COORDINATOR && request.status == "ACEPTADA") {
-                    val linked = state.purchases.any { it.requestId == request.id }
-                    if (!linked) TextButton(enabled = !state.isWorking, onClick = { onCreatePurchase(request) }) { Text("Crear compra") }
-                    else Text("Compra asociada", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } }
+private fun RequestCard(request: PurchaseRequestDto, state: PurchasingUiState, role: String, onEdit: () -> Unit, onDelete: () -> Unit, onAccept: () -> Unit, onReject: () -> Unit, onCreatePurchase: () -> Unit, onDetail: () -> Unit) {
+    val enabled = !state.isWorking
+    EuropartesCard {
+        RecordHeader(
+            "Solicitud ${pendingLabel(request.id)}",
+            if (request.id in state.pendingRequestIds) "Pendiente de sincronizar" else formatDisplayDate(request.date),
+        ) { PurchaseStatusPill(request.status) }
+        ProductLines(request.details.map { it.productName to it.quantity })
+        request.observations?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        RecordActions {
+            EuropartesButton("Ver", onDetail, variant = ButtonVariant.Secondary, small = true, enabled = enabled)
+            if (role == PurchasingViewModel.VENDOR && request.status == "PENDIENTE") {
+                EuropartesButton("Editar", onEdit, variant = ButtonVariant.Secondary, small = true, enabled = enabled)
+                EuropartesButton("Eliminar", onDelete, variant = ButtonVariant.Danger, small = true, enabled = enabled)
+            }
+            if (role == PurchasingViewModel.COORDINATOR && request.status == "PENDIENTE") {
+                EuropartesButton("Aceptar", onAccept, small = true, enabled = enabled)
+                EuropartesButton("Rechazar", onReject, variant = ButtonVariant.Danger, small = true, enabled = enabled)
+            }
+            if (role == PurchasingViewModel.COORDINATOR && request.status == "ACEPTADA" && state.purchases.none { it.requestId == request.id }) {
+                EuropartesButton("Generar compra", onCreatePurchase, small = true, enabled = enabled)
+            }
         }
     }
 }
 
 @Composable
-private fun PurchaseList(state: PurchasingUiState, role: String, onAction: (String, Int) -> Unit, onDetail: (Int) -> Unit) {
-    if (state.purchases.isEmpty() && !state.isLoading && state.error == null) EmptyPurchasingState("No hay compras para mostrar.")
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-        items(state.purchases, key = { it.id }) { purchase ->
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Compra #${purchase.id}", style = MaterialTheme.typography.titleMedium); StatusPill(purchase.status) }
-                Text("Proveedor: ${purchase.supplier ?: "Sin nombre de proveedor"}", Modifier.padding(top = 4.dp))
-                purchase.requestId?.let { Text("Solicitud relacionada: #$it", style = MaterialTheme.typography.bodySmall) }
-                purchase.details.forEach { line ->
-                    Text("${line.productName} · ${line.quantity} u. · Costo unitario ${line.unitCost ?: "—"}", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyMedium)
-                }
-                TextButton(enabled = !state.isWorking, onClick = { onDetail(purchase.id) }) { Text("Consultar detalle del servidor") }
-                val actions = buildList {
-                    if (role == PurchasingViewModel.COORDINATOR && purchase.status == "REALIZADA") add("start" to "Iniciar")
-                    if (role == PurchasingViewModel.COORDINATOR && purchase.status in setOf("REALIZADA", "EN_PROCESO")) add("cancel" to "Cancelar")
-                    if (role == PurchasingViewModel.FINANCE && purchase.status == "EN_PROCESO") add("approve" to "Aprobar y facturar")
-                    if (role == PurchasingViewModel.LOGISTICS && purchase.status == "PROCESADA") add("receive" to "Recibir compra completa")
-                }
-                if (actions.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    actions.forEach { (action, text) -> TextButton(enabled = !state.isWorking, onClick = { onAction(action, purchase.id) }) { Text(text) } }
-                }
-                if (role == PurchasingViewModel.LOGISTICS && purchase.status == "PROCESADA") Text("La recepción es completa; Django registra la entrada de inventario.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } }
+private fun PurchaseCard(purchase: PurchaseDto, state: PurchasingUiState, role: String, onAction: (String) -> Unit, onDetail: () -> Unit) {
+    val actions = buildList {
+        if (role == PurchasingViewModel.COORDINATOR && purchase.status == "REALIZADA") add(Triple("start", "Iniciar", ButtonVariant.Primary))
+        if (role == PurchasingViewModel.COORDINATOR && purchase.status in setOf("REALIZADA", "EN_PROCESO")) add(Triple("cancel", "Cancelar", ButtonVariant.Danger))
+        if (role == PurchasingViewModel.FINANCE && purchase.status == "EN_PROCESO") add(Triple("approve", "Aprobar", ButtonVariant.Primary))
+        if (role == PurchasingViewModel.LOGISTICS && purchase.status == "PROCESADA") add(Triple("receive", "Registrar recepción", ButtonVariant.Primary))
+    }
+    EuropartesCard {
+        RecordHeader(
+            "Compra ${pendingLabel(purchase.id)}",
+            if (purchase.id in state.pendingPurchaseIds) "Pendiente de sincronizar" else formatDisplayDate(purchase.date),
+        ) { PurchaseStatusPill(purchase.status) }
+        Text(purchase.supplier ?: "Sin nombre de proveedor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        ProductLines(purchase.details.map { it.productName to it.quantity })
+        purchase.requestId?.let { Text("Solicitud relacionada: ${pendingLabel(it)}", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted) }
+        if (!state.isOnline && actions.any { it.first in onlineOnlyActions }) Text("Esta acción requiere conexión.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        RecordActions {
+            EuropartesButton("Ver", onDetail, variant = ButtonVariant.Secondary, small = true, enabled = !state.isWorking)
+            actions.forEach { (action, text, variant) ->
+                EuropartesButton(text, { onAction(action) }, variant = variant, small = true, enabled = !state.isWorking && (state.isOnline || action !in onlineOnlyActions))
+            }
         }
     }
 }
 
+/** Own route, as `#/historial/compras` is on the web. */
 @Composable
-private fun HistoryList(state: PurchasingUiState, onFilter: (PurchaseFilters) -> Unit, onDetail: (PurchaseHistoryDto) -> Unit, onExport: (PurchaseFilters) -> Unit) {
-    var filters by remember { mutableStateOf(state.filters) }
+fun PurchaseHistoryScreen(viewModel: PurchasingViewModel, role: String, sessionKey: Int, modifier: Modifier = Modifier) {
+    val state by viewModel.uiState.collectAsState()
+    val money = LocalMoney.current
+    var filters by remember(sessionKey) { mutableStateOf(state.filters) }
     var showFilters by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { showFilters = !showFilters }) { Text(if (showFilters) "Ocultar filtros" else "Filtros") }
-            TextButton(enabled = !state.isWorking, onClick = { onExport(filters) }) { Text("Exportar Excel") }
+    var search by remember { mutableStateOf("") }
+    var detail by remember { mutableStateOf<PurchaseHistoryDto?>(null) }
+    var notice by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val context = LocalContext.current
+    var exportBytes by remember { mutableStateOf<ByteArray?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
+        val bytes = exportBytes
+        if (uri != null && bytes != null) {
+            runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("No se pudo abrir el archivo seleccionado.") }
+                .onSuccess { notice = "Historial guardado." to false }
+                .onFailure { notice = (it.message ?: "No se pudo guardar el archivo.") to true }
         }
-        if (showFilters) Column(Modifier.fillMaxWidth().heightIn(max = 330.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(filters.startDate, { filters = filters.copy(startDate = it) }, label = { Text("Desde (AAAA-MM-DD)") }, modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(filters.endDate, { filters = filters.copy(endDate = it) }, label = { Text("Hasta (AAAA-MM-DD)") }, modifier = Modifier.weight(1f), singleLine = true)
+        exportBytes = null
+    }
+    LaunchedEffect(sessionKey, role) { viewModel.load(role) }
+    val visible = remember(state.history, search) {
+        val term = search.trim()
+        state.history.filter { item ->
+            term.isEmpty() || (listOfNotNull(item.id.toString(), item.supplier, item.employee, purchaseStatusLabel(item.status), item.requestId?.toString()) + item.details.map { it.productName })
+                .any { it.contains(term, ignoreCase = true) }
+        }
+    }
+    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+        item {
+            PageHeader(
+                title = "Historial de compras",
+                description = "Compras generadas, su estado y su recepción.",
+                actions = {
+                    EuropartesButton("Exportar Excel", {
+                        notice = null
+                        viewModel.exportHistory(filters.copy(search = search)) { result ->
+                            result.fold(
+                                onSuccess = { bytes -> exportBytes = bytes; exportLauncher.launch("Historial_Compras.xlsx") },
+                                onFailure = { error -> notice = (error.message ?: "No se pudo exportar el historial.") to true },
+                            )
+                        }
+                    }, variant = ButtonVariant.Secondary, enabled = !state.isWorking && state.isOnline, icon = Icons.Outlined.Download)
+                    EuropartesButton(if (showFilters) "Ocultar filtros" else "Filtros", { showFilters = !showFilters }, variant = ButtonVariant.Secondary, icon = Icons.Outlined.FilterAlt)
+                },
+            )
+        }
+        item {
+            EuropartesCard {
+                EuropartesSearchField(search, { search = it }, "ID, proveedor, producto o estado")
+                if (showFilters) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        EuropartesDateField("Desde", filters.startDate, { filters = filters.copy(startDate = it) }, Modifier.weight(1f))
+                        EuropartesDateField("Hasta", filters.endDate, { filters = filters.copy(endDate = it) }, Modifier.weight(1f))
+                    }
+                    EuropartesSelect(
+                        "Estado",
+                        listOf(SelectOption("", "Todos los estados")) + purchaseStates.map { SelectOption(it, purchaseStatusLabel(it)) },
+                        filters.status,
+                        { filters = filters.copy(status = it) },
+                    )
+                    EuropartesSelect(
+                        "Proveedor",
+                        listOf(SelectOption("", "Todos los proveedores")) + state.suppliers.map { SelectOption(it.id.toString(), it.title) },
+                        filters.supplierId,
+                        { filters = filters.copy(supplierId = it) },
+                    )
+                    EuropartesSelect(
+                        "Producto",
+                        listOf(SelectOption("", "Todos los productos")) + state.products.map { SelectOption(it.id.toString(), it.nombre) },
+                        filters.productId,
+                        { filters = filters.copy(productId = it) },
+                    )
+                    EuropartesTextField(filters.requestId, { filters = filters.copy(requestId = it.filter(Char::isDigit)) }, "ID de solicitud", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EuropartesButton("Filtrar", { viewModel.applyHistoryFilters(role, filters) }, Modifier.weight(1f), enabled = !state.isWorking && !state.isLoading, icon = Icons.Outlined.FilterAlt)
+                        EuropartesButton("Limpiar", { filters = PurchaseFilters(); search = ""; viewModel.applyHistoryFilters(role, PurchaseFilters()) }, Modifier.weight(1f), variant = ButtonVariant.Secondary, enabled = !state.isWorking && !state.isLoading)
+                    }
+                }
+                Text("${visible.size} registro(s)", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
             }
-            SelectOption("Proveedor", state.suppliers.map { it.id to it.title }, filters.supplierId.toIntOrNull(), { filters = filters.copy(supplierId = it?.toString().orEmpty()) })
-            SelectOption("Producto", state.products.map { it.id to it.nombre }, filters.productId.toIntOrNull(), { filters = filters.copy(productId = it?.toString().orEmpty()) })
-            OutlinedTextField(filters.status, { filters = filters.copy(status = it.uppercase()) }, label = { Text("Estado exacto (opcional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(filters.requestId, { filters = filters.copy(requestId = it.filter(Char::isDigit)) }, label = { Text("ID de solicitud") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(filters.search, { filters = filters.copy(search = it) }, label = { Text("Búsqueda para exportar") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(enabled = !state.isWorking && !state.isLoading, onClick = { onFilter(filters) }) { Text("Aplicar filtros") }
         }
-        if (state.history.isEmpty() && !state.isLoading && state.error == null) EmptyPurchasingState("No hay resultados para estos filtros.")
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(state.history, key = { it.id }) { item ->
-                Card(onClick = { onDetail(item) }, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Compra #${item.id}", style = MaterialTheme.typography.titleMedium); StatusPill(item.status) }
-                    Text(item.supplier ?: "Proveedor sin nombre", style = MaterialTheme.typography.bodyMedium)
-                    Text("${item.date.orEmpty()} · ${item.productCount ?: item.details.sumOf { it.quantity }} unidades", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    item.invoice?.let { Text("Factura · Total con IVA: ${it.totalWithTax ?: "—"}", Modifier.padding(top = 4.dp)) }
-                } }
+        notice?.let { (text, isError) -> item { EuropartesStatusMessage(text, isError, onDismiss = { notice = null }) } }
+        state.error?.let { item { EuropartesStatusMessage(it, true) } }
+        when {
+            state.isLoading && state.history.isEmpty() -> item { LoadingState("Cargando historial…") }
+            visible.isEmpty() -> item { EmptyState("Sin resultados", "No hay compras con estos filtros.", icon = Icons.Outlined.ShoppingCart) }
+            else -> items(visible, key = { it.id }) { item ->
+                EuropartesCard {
+                    RecordHeader("Compra #${item.id}", formatDisplayDate(item.date)) { PurchaseStatusPill(item.status) }
+                    MetaGrid(
+                        listOf(
+                            "Proveedor" to (item.supplier ?: "—"),
+                            "Responsable" to (item.employee ?: "—"),
+                            "Unidades" to (item.productCount ?: item.details.sumOf { it.quantity }).toString(),
+                            "Recepción" to (item.receivedAt?.let(::formatDisplayDate) ?: "Pendiente"),
+                        ),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        LabeledValue("Total con IVA", money.format(item.invoice?.totalWithTax))
+                        EuropartesButton("Ver detalle", {
+                            notice = null
+                            viewModel.historyDetail(item.id) { result -> result.fold({ detail = it }, { notice = (it.message ?: "No se pudo abrir el detalle.") to true }) }
+                        }, variant = ButtonVariant.Secondary, small = true, enabled = !state.isWorking)
+                    }
+                }
             }
         }
     }
+    detail?.let { HistoryDetailDialog(it) { detail = null } }
+}
+
+@Composable
+private fun ProductLineEditor(index: Int, line: DraftLine, products: List<ProductDto>, canRemove: Boolean, onChange: (DraftLine) -> Unit, onRemove: () -> Unit, extra: @Composable () -> Unit) {
+    if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text("Producto ${index + 1}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        if (canRemove) EuropartesButton("Quitar", onRemove, variant = ButtonVariant.Ghost, small = true)
+    }
+    EuropartesSelect("Producto", products.map { SelectOption(it.id, it.nombre, it.marcaNombre) }, line.productId, { onChange(line.copy(productId = it)) }, required = true)
+    EuropartesTextField(line.quantity, { onChange(line.copy(quantity = it.filter(Char::isDigit))) }, "Cantidad", required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+    extra()
 }
 
 @Composable
 private fun RequestEditorDialog(products: List<ProductDto>, initial: PurchaseRequestDto?, isWorking: Boolean, onDismiss: () -> Unit, onSave: (String, List<RequestLineWrite>) -> Unit) {
     var observations by remember(initial?.id) { mutableStateOf(initial?.observations.orEmpty()) }
     var lines by remember(initial?.id) { mutableStateOf(initial?.details?.map { DraftLine(it.productId, it.quantity.toString(), observations = it.observations.orEmpty()) }?.ifEmpty { listOf(DraftLine()) } ?: listOf(DraftLine())) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (initial == null) "Nueva solicitud" else "Editar solicitud #${initial.id}") }, text = {
-        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(observations, { observations = it }, label = { Text("Observaciones") }, modifier = Modifier.fillMaxWidth())
-            lines.forEachIndexed { index, line ->
-                Text("Producto ${index + 1}", style = MaterialTheme.typography.labelLarge)
-                SelectOption("Producto activo", products.map { it.id to it.nombre }, line.productId) { id -> lines = lines.toMutableList().also { it[index] = it[index].copy(productId = id) } }
-                OutlinedTextField(line.quantity, { value -> lines = lines.toMutableList().also { it[index] = it[index].copy(quantity = value.filter(Char::isDigit)) } }, label = { Text("Cantidad") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(line.observations, { value -> lines = lines.toMutableList().also { it[index] = it[index].copy(observations = value) } }, label = { Text("Observaciones de línea") }, modifier = Modifier.fillMaxWidth())
-                if (lines.size > 1) TextButton(onClick = { lines = lines.toMutableList().also { it.removeAt(index) } }) { Text("Quitar línea") }
+    EuropartesDialog(
+        title = if (initial == null) "Nueva solicitud" else "Editar solicitud #${initial.id}",
+        onDismiss = onDismiss,
+        dismissEnabled = !isWorking,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = !isWorking)
+            EuropartesButton("Guardar", {
+                onSave(observations, lines.map { RequestLineWrite(it.productId!!, it.quantity.toInt(), it.observations) })
+            }, enabled = lines.all { it.productId != null && (it.quantity.toIntOrNull() ?: 0) > 0 }, isLoading = isWorking)
+        },
+    ) {
+        lines.forEachIndexed { index, line ->
+            ProductLineEditor(
+                index, line, products, lines.size > 1,
+                onChange = { updated -> lines = lines.toMutableList().also { it[index] = updated } },
+                onRemove = { lines = lines.toMutableList().also { it.removeAt(index) } },
+            ) {
+                EuropartesTextField(line.observations, { value -> lines = lines.toMutableList().also { it[index] = it[index].copy(observations = value) } }, "Observaciones del producto")
             }
-            TextButton(onClick = { lines = lines + DraftLine() }) { Text("Agregar producto") }
         }
-    }, confirmButton = { TextButton(enabled = !isWorking && lines.all { it.productId != null && it.quantity.toIntOrNull() != null }, onClick = {
-        onSave(observations, lines.map { RequestLineWrite(it.productId!!, it.quantity.toInt(), it.observations) })
-    }) { Text(if (isWorking) "Enviando…" else "Guardar") } }, dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } })
+        EuropartesButton("Agregar producto", { lines = lines + DraftLine() }, variant = ButtonVariant.Secondary, small = true, icon = Icons.Outlined.Add)
+        EuropartesTextField(observations, { observations = it }, "Observaciones de la solicitud", multiline = true)
+    }
 }
 
 @Composable
 private fun PurchaseEditorDialog(products: List<ProductDto>, suppliers: List<CatalogItem>, isWorking: Boolean, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseLineWrite>) -> Unit) {
     var supplier by remember { mutableStateOf<Int?>(null) }
     var lines by remember { mutableStateOf(listOf(DraftLine())) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Nueva compra") }, text = {
-        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectOption("Proveedor", suppliers.map { it.id to it.title }, supplier) { supplier = it }
-            lines.forEachIndexed { index, line ->
-                Text("Producto ${index + 1}", style = MaterialTheme.typography.labelLarge)
-                SelectOption("Producto activo", products.map { it.id to it.nombre }, line.productId) { id -> lines = lines.toMutableList().also { it[index] = it[index].copy(productId = id) } }
-                OutlinedTextField(line.quantity, { v -> lines = lines.toMutableList().also { it[index] = it[index].copy(quantity = v.filter(Char::isDigit)) } }, label = { Text("Cantidad") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(line.cost, { v -> lines = lines.toMutableList().also { it[index] = it[index].copy(cost = v) } }, label = { Text("Costo unitario") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-                if (lines.size > 1) TextButton(onClick = { lines = lines.toMutableList().also { it.removeAt(index) } }) { Text("Quitar línea") }
+    EuropartesDialog(
+        title = "Crear compra directa",
+        onDismiss = onDismiss,
+        dismissEnabled = !isWorking,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = !isWorking)
+            EuropartesButton("Crear compra", {
+                onSave(supplier, lines.map { PurchaseLineWrite(it.productId!!, it.quantity.toInt(), it.cost.trim().replace(',', '.')) })
+            }, enabled = supplier != null && lines.all { it.productId != null && (it.quantity.toIntOrNull() ?: 0) > 0 && it.cost.isNotBlank() }, isLoading = isWorking)
+        },
+    ) {
+        EuropartesSelect("Proveedor", suppliers.map { SelectOption(it.id, it.title) }, supplier, { supplier = it }, required = true)
+        lines.forEachIndexed { index, line ->
+            ProductLineEditor(
+                index, line, products, lines.size > 1,
+                onChange = { updated -> lines = lines.toMutableList().also { it[index] = updated } },
+                onRemove = { lines = lines.toMutableList().also { it.removeAt(index) } },
+            ) {
+                EuropartesTextField(line.cost, { value -> lines = lines.toMutableList().also { it[index] = it[index].copy(cost = value) } }, "Costo unitario (C$)", required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             }
-            TextButton(onClick = { lines = lines + DraftLine() }) { Text("Agregar producto") }
         }
-    }, confirmButton = { TextButton(enabled = !isWorking && supplier != null && lines.all { it.productId != null && (it.quantity.toIntOrNull() ?: 0) > 0 && it.cost.isNotBlank() }, onClick = {
-        onSave(supplier, lines.map { PurchaseLineWrite(it.productId!!, it.quantity.toInt(), it.cost.trim().replace(',', '.')) })
-    }) { Text(if (isWorking) "Enviando…" else "Crear compra") } }, dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } })
+        EuropartesButton("Agregar producto", { lines = lines + DraftLine() }, variant = ButtonVariant.Secondary, small = true, icon = Icons.Outlined.Add)
+    }
 }
 
 @Composable
 private fun PurchaseFromRequestDialog(request: PurchaseRequestDto, suppliers: List<CatalogItem>, isWorking: Boolean, onDismiss: () -> Unit, onSave: (Int?, List<PurchaseCostWrite>) -> Unit) {
     var supplier by remember { mutableStateOf<Int?>(null) }
     var costs by remember(request.id) { mutableStateOf(request.details.associate { it.productId to "" }) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Compra desde solicitud #${request.id}") }, text = {
-        Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectOption("Proveedor", suppliers.map { it.id to it.title }, supplier) { supplier = it }
-            request.details.forEach { detail ->
-                Text("${detail.productName} · ${detail.quantity} unidades")
-                OutlinedTextField(costs[detail.productId].orEmpty(), { costs = costs.toMutableMap().also { map -> map[detail.productId] = it } }, label = { Text("Costo unitario") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-            }
-        }
-    }, confirmButton = { TextButton(enabled = !isWorking && supplier != null && costs.values.all(String::isNotBlank), onClick = {
-        onSave(supplier, costs.map { PurchaseCostWrite(it.key, it.value.trim().replace(',', '.')) })
-    }) { Text(if (isWorking) "Enviando…" else "Crear compra") } }, dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } })
-}
-
-@Composable
-private fun SelectOption(label: String, options: List<Pair<Int, String>>, selectedId: Int?, onSelect: (Int?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val current = options.firstOrNull { it.first == selectedId }?.second
-    Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("$label: ${current ?: "Seleccionar"}") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (id, name) -> DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(id); expanded = false }) }
+    EuropartesDialog(
+        title = "Generar orden de compra",
+        subtitle = "Desde la solicitud #${request.id}",
+        onDismiss = onDismiss,
+        dismissEnabled = !isWorking,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = !isWorking)
+            EuropartesButton("Generar compra", {
+                onSave(supplier, costs.map { PurchaseCostWrite(it.key, it.value.trim().replace(',', '.')) })
+            }, enabled = supplier != null && costs.values.all(String::isNotBlank), isLoading = isWorking)
+        },
+    ) {
+        EuropartesSelect("Proveedor", suppliers.map { SelectOption(it.id, it.title) }, supplier, { supplier = it }, required = true)
+        request.details.forEach { detail ->
+            EuropartesTextField(
+                costs[detail.productId].orEmpty(),
+                { value -> costs = costs.toMutableMap().also { map -> map[detail.productId] = value } },
+                "${detail.productName} × ${detail.quantity} · Costo unitario (C$)",
+                required = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            )
         }
     }
 }
 
 @Composable
+private fun CloseFooter(onDismiss: () -> Unit) = EuropartesButton("Cerrar", onDismiss, variant = ButtonVariant.Secondary)
+
+@Composable
 private fun HistoryDetailDialog(item: PurchaseHistoryDto, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Historial de compra #${item.id}") }, text = {
-        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Proveedor: ${item.supplier ?: "—"}")
-            Text("Estado: ${item.status}")
-            Text("Fecha: ${item.date ?: "—"}")
-            item.requestId?.let { Text("Solicitud: #$it · ${item.requestStatus.orEmpty()}") }
-            item.invoice?.let { Text("Factura #${it.id ?: "—"} · subtotal ${it.total ?: "—"} · IVA ${it.tax ?: "—"} · total ${it.totalWithTax ?: "—"}") }
-            item.startedBy?.let { Text("Iniciada por $it · ${item.startedAt.orEmpty()}") }
-            item.approvedBy?.let { Text("Aprobada por $it · ${item.approvedAt.orEmpty()}") }
-            item.receivedBy?.let { Text("Recibida por $it · ${item.receivedAt.orEmpty()}") }
-            HorizontalDivider()
-            item.details.forEach { Text("${it.productName} · ${it.quantity} · ${it.unitCost ?: "—"} · subtotal ${it.subtotal ?: "—"}") }
+    val money = LocalMoney.current
+    EuropartesDialog(title = "Compra #${item.id}", subtitle = formatDisplayDate(item.date), onDismiss = onDismiss, footer = { CloseFooter(onDismiss) }) {
+        PurchaseStatusPill(item.status)
+        MetaGrid(
+            buildList {
+                add("Proveedor" to (item.supplier ?: "—"))
+                add("Responsable" to (item.employee ?: "—"))
+                item.requestId?.let { add("Solicitud" to "#$it · ${purchaseStatusLabel(item.requestStatus.orEmpty())}") }
+                item.startedBy?.let { add("Iniciada por" to "$it · ${formatDisplayDate(item.startedAt)}") }
+                item.approvedBy?.let { add("Aprobada por" to "$it · ${formatDisplayDate(item.approvedAt)}") }
+                item.receivedBy?.let { add("Recibida por" to "$it · ${formatDisplayDate(item.receivedAt)}") }
+            },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        item.details.forEach { line ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(line.productName, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text("${line.quantity} × ${money.format(line.unitCost)}", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
+                }
+                Text(money.format(line.subtotal), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } })
+        item.invoice?.let { invoice ->
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            MetaGrid(
+                listOf("Factura" to "#${invoice.id ?: "—"}", "Subtotal" to money.format(invoice.total), "IVA" to money.format(invoice.tax), "Total con IVA" to money.format(invoice.totalWithTax)),
+            )
+        }
+    }
 }
 
 @Composable
 private fun RequestDetailDialog(item: PurchaseRequestDto, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Solicitud #${item.id}") }, text = {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusPill(item.status)
-            Text("Fecha: ${item.date ?: "—"}")
-            item.observations?.takeIf(String::isNotBlank)?.let { Text("Observaciones: $it") }
-            Text("Productos", style = MaterialTheme.typography.titleSmall)
-            item.details.forEach { Text("${it.productName} · ${it.quantity} unidades${it.observations?.takeIf(String::isNotBlank)?.let { note -> " · $note" }.orEmpty()}") }
+    EuropartesDialog(title = "Solicitud #${item.id}", subtitle = formatDisplayDate(item.date), onDismiss = onDismiss, footer = { CloseFooter(onDismiss) }) {
+        PurchaseStatusPill(item.status)
+        ProductLines(item.details.map { it.productName to it.quantity })
+        item.details.mapNotNull { detail -> detail.observations?.takeIf(String::isNotBlank)?.let { "${detail.productName}: $it" } }.forEach {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } })
-}
-
-@Composable
-private fun PurchaseDetailDialog(item: PurchaseDto, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Compra #${item.id}") }, text = {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusPill(item.status)
-            Text("Proveedor: ${item.supplier ?: "—"}")
-            Text("Fecha: ${item.date ?: "—"}")
-            item.requestId?.let { Text("Solicitud relacionada: #$it") }
-            item.details.forEach { Text("${it.productName} · ${it.quantity} unidades · costo unitario ${it.unitCost ?: "—"}") }
-        }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } })
-}
-
-@Composable
-private fun StatusPill(value: String) {
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
-        Text(value.replace('_', ' '), Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium)
+        item.observations?.takeIf(String::isNotBlank)?.let { LabeledValue("Observaciones", it) }
     }
 }
 
 @Composable
-private fun EmptyPurchasingState(message: String) {
-    Text(message, Modifier.fillMaxWidth().padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+private fun PurchaseDetailDialog(item: PurchaseDto, onDismiss: () -> Unit) {
+    val money = LocalMoney.current
+    EuropartesDialog(title = "Compra #${item.id}", subtitle = formatDisplayDate(item.date), onDismiss = onDismiss, footer = { CloseFooter(onDismiss) }) {
+        PurchaseStatusPill(item.status)
+        MetaGrid(listOfNotNull("Proveedor" to (item.supplier ?: "—"), item.requestId?.let { "Solicitud" to "#$it" }))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        item.details.forEach { line ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(line.productName, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text("${line.quantity} × ${money.format(line.unitCost)}", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
+            }
+        }
+    }
 }
+

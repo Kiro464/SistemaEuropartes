@@ -36,6 +36,28 @@ data class CatalogForm(
     val linkedUserId: Int? = null,
 )
 
+fun List<CatalogItem>.withRelations(kind: CatalogKind, countries: List<CountryDto>, departments: List<DepartmentDto>) = map { item ->
+    val relatedName = when (kind) {
+        CatalogKind.SUPPLIERS -> item.relatedId?.let { id -> countries.firstOrNull { it.id == id }?.name }
+        CatalogKind.EMPLOYEES -> item.relatedId?.let { id -> departments.firstOrNull { it.id == id }?.name }
+        else -> null
+    }
+    item.copy(subtitle = when {
+        relatedName == null -> item.subtitle
+        kind == CatalogKind.EMPLOYEES -> "${item.subtitle} · $relatedName"
+        else -> relatedName
+    })
+}
+
+/** Request body the server expects for this catalog; also what gets queued offline. */
+fun CatalogForm.writeBody(kind: CatalogKind): Any = when (kind) {
+    CatalogKind.BRANDS -> BrandWriteRequest(name)
+    CatalogKind.COUNTRIES -> CountryWriteRequest(name)
+    CatalogKind.DEPARTMENTS -> DepartmentWriteRequest(name, description)
+    CatalogKind.SUPPLIERS -> SupplierWriteRequest(name, requireNotNull(relatedId), phone, email, website, active)
+    CatalogKind.EMPLOYEES -> EmployeeWriteRequest(names, surnames, title, phone, email, requireNotNull(relatedId), active)
+}
+
 class CatalogRepository(private val api: CatalogApi) {
     suspend fun list(kind: CatalogKind, search: String, includeInactive: Boolean): Result<List<CatalogItem>> = safe("consultar ${kind.label.lowercase()}") {
         when (kind) {

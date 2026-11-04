@@ -29,6 +29,18 @@ data class KardexFilters(
         employeeId.trim().takeIf(String::isNotEmpty)?.let { put("empleado_id", it) }
         search?.trim()?.takeIf(String::isNotEmpty)?.let { put("busqueda", it) }
     }
+
+    /** Same filters the server applies, used over the saved Kardex when offline. */
+    fun matches(movement: InventoryMovementDto): Boolean {
+        val day = movement.date.take(10)
+        return (productId == null || movement.productId == productId) &&
+            (movementType.isBlank() || movement.movementType == movementType) &&
+            (dateFrom.isBlank() || day >= dateFrom.trim()) &&
+            (dateTo.isBlank() || day <= dateTo.trim()) &&
+            (referenceType.isBlank() || movement.referenceType.equals(referenceType.trim(), ignoreCase = true)) &&
+            (referenceId.isBlank() || movement.referenceId?.toString() == referenceId.trim()) &&
+            (employeeId.isBlank() || movement.employeeId.toString() == employeeId.trim())
+    }
 }
 
 class KardexRepository(private val api: InventoryApi) {

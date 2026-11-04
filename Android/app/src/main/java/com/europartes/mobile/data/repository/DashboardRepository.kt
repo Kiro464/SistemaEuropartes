@@ -13,6 +13,14 @@ import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
 
+/** Period options shown by the dashboard; each one is also downloaded for offline use. */
+val DASHBOARD_RANGES = listOf(
+    "dia" to "Hoy",
+    "semana" to "Últimos 7 días",
+    "mes" to "Últimos 30 días",
+    "historico" to "Histórico completo",
+)
+
 data class DashboardReportData(
     val id: String,
     val title: String,

@@ -20,9 +20,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Azure by default; pass -Peuropartes.apiBaseUrl=... to test against a local backend.
+        val apiBaseUrl = providers.gradleProperty("europartes.apiBaseUrl")
+            .getOrElse("https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net/")
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
+        debug {
+            // A build aimed at a local backend installs beside the normal app without touching its data.
+            if (providers.gradleProperty("europartes.apiBaseUrl").isPresent) applicationIdSuffix = ".localtest"
+        }
         release {
             optimization {
                 enable = false
@@ -35,6 +44,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -57,6 +67,7 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

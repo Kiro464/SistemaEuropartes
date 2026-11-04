@@ -1,6 +1,7 @@
 package com.europartes.mobile.data.repository
 
 import com.europartes.mobile.data.remote.*
+import com.europartes.mobile.data.sync.HttpIOException
 import java.io.IOException
 import java.net.SocketTimeoutException
 import org.json.JSONObject
@@ -47,7 +48,7 @@ class PurchasingRepository(private val api: PurchasingApi) {
                                 }
                             }.firstOrNull(String::isNotBlank)
                     }.getOrNull()
-                    throw IOException(detail ?: when (error.code()) {
+                    throw HttpIOException(detail ?: when (error.code()) {
                         401 -> "La sesión venció. Inicia sesión nuevamente."
                         403 -> "Tu usuario no tiene permiso para realizar esta operación."
                         404 -> "El registro solicitado ya no está disponible."

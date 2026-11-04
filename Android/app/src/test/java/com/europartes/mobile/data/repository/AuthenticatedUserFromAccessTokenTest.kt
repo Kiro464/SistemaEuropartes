@@ -22,6 +22,15 @@ class AuthenticatedUserFromAccessTokenTest {
     }
 
     @Test
+    fun expiredTokenStillIdentifiesTheAccountForOfflineUse() {
+        val token = tokenWithPayload(
+            """{"user_id":17,"username":"ana","grupo":"Vendedor","exp":1000}""",
+        )
+
+        assertEquals(17, authenticatedUserFromAccessToken(token)?.userId)
+    }
+
+    @Test
     fun rejectsMalformedOrUnknownRoleClaims() {
         assertNull(authenticatedUserFromAccessToken("not-a-jwt"))
         assertNull(
@@ -29,18 +38,6 @@ class AuthenticatedUserFromAccessTokenTest {
                 tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Rol desconocido"}"""),
             ),
         )
-    }
-
-    @Test
-    fun offlineIdentityRequiresAnUnexpiredAccessToken() {
-        val now = 1_800_000_000L
-        val valid = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor","exp":1800000010}""")
-        val expired = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor","exp":1799999999}""")
-        val missingExpiry = tokenWithPayload("""{"user_id":17,"username":"ana","grupo":"Vendedor"}""")
-
-        assertEquals(17, authenticatedUserFromUnexpiredAccessToken(valid, now)?.userId)
-        assertNull(authenticatedUserFromUnexpiredAccessToken(expired, now))
-        assertNull(authenticatedUserFromUnexpiredAccessToken(missingExpiry, now))
     }
 
     private fun tokenWithPayload(payload: String): String =

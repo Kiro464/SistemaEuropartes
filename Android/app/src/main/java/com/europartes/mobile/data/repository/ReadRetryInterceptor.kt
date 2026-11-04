@@ -3,6 +3,8 @@ package com.europartes.mobile.data.repository
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
 
 /**
  * Retries only idempotent GET requests, at most twice, for transient transport
@@ -26,7 +28,8 @@ class ReadRetryInterceptor(private val maxRetries: Int = 2) : Interceptor {
                 response.close()
             } catch (error: IOException) {
                 lastException = error
-                if (attempt == maxRetries) throw error
+                // Without a route to the server a retry only delays showing the Room copy.
+                if (attempt == maxRetries || error is UnknownHostException || error is NoRouteToHostException) throw error
             }
             Thread.sleep(BACKOFF_MS[attempt.coerceAtMost(BACKOFF_MS.lastIndex)])
             attempt++

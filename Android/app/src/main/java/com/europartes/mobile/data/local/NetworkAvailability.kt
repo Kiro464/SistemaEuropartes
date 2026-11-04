@@ -22,6 +22,11 @@ object NetworkAvailability {
         }.getOrDefault(false)
     }
 
+    /** False only when no network exists at all; an unvalidated network may still reach the server. */
+    fun hasAnyNetwork(context: Context): Boolean = runCatching {
+        context.getSystemService(ConnectivityManager::class.java)?.activeNetwork != null
+    }.getOrDefault(true)
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observe(context: Context): Flow<Boolean> = callbackFlow {
         val appContext = context.applicationContext

@@ -24,6 +24,15 @@ import com.europartes.mobile.data.repository.ProductRepository
 import com.europartes.mobile.data.repository.SalesRepository
 import com.europartes.mobile.data.repository.OfflineCatalogRepository
 import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
+import com.europartes.mobile.data.sync.OutboxRepository
+import com.europartes.mobile.data.sync.PendingAction
+import com.europartes.mobile.data.sync.PendingDisplay
+import com.europartes.mobile.data.sync.PendingModule
+import com.europartes.mobile.data.sync.SyncCoordinator
+import com.europartes.mobile.data.sync.applyPendingCustomers
+import com.europartes.mobile.data.sync.canUseOfflineCopy
+import com.europartes.mobile.data.sync.neverReachedServer
+import com.europartes.mobile.data.sync.pendingIds
 import java.io.IOException
 import java.time.LocalDate
 import retrofit2.HttpException
@@ -62,8 +71,10 @@ data class SalesUiState(
     val error: String? = null,
     val message: String? = null,
     val lastInvoiceId: Int? = null,
+    val lastTicket: SaleTicket? = null,
     val offlineNotice: String? = null,
     val isOnline: Boolean = true,
+    val pendingCustomerIds: Set<Int> = emptySet(),
 )
 
 class SalesViewModel(application: Application) : AndroidViewModel(application) {
@@ -85,8 +96,15 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
     private var exportJob: Job? = null
     private var activeCustomerRole: String? = null
     private var activeCustomerSearch = ""
+    private val outbox = OutboxRepository(database.pendingOperationDao(), ownerUserId = { store.userIdForLocalPartition() })
 
     init {
+        viewModelScope.launch {
+            SyncCoordinator.dataChanged.collect {
+                if (mutableState.value.message?.startsWith(com.europartes.mobile.data.sync.OFFLINE_SAVED_PREFIX) == true) clearMessages()
+                if (mutableState.value.customersLoaded) activeCustomerRole?.let { loadCustomers(it, activeCustomerSearch) }
+            }
+        }
         viewModelScope.launch {
             var wasOnline = NetworkAvailability.hasValidatedInternet(application)
             mutableState.value = mutableState.value.copy(isOnline = wasOnline)
@@ -119,26 +137,27 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
             sales.customers(search).fold(
                 onSuccess = {
                     val savedAt = localCatalogs.saveCustomers(role, search, it)
-                    mutableState.value = mutableState.value.copy(customers = it, isLoading = false, customersLoaded = true, error = if (savedAt == null) "Los clientes se consultaron, pero no se guardaron en Room." else null, message = null, customersShowingOfflineSnapshot = false, customersSnapshotAtEpochMs = savedAt)
+                    val pending = pendingCustomerOperations()
+                    mutableState.value = mutableState.value.copy(customers = applyPendingCustomers(it, pending).matching(search), pendingCustomerIds = pendingIds(PendingModule.CUSTOMER, pending), isLoading = false, customersLoaded = true, error = if (savedAt == null) "Los clientes se consultaron, pero no se guardaron en Room." else null, message = null, customersShowingOfflineSnapshot = false, customersSnapshotAtEpochMs = savedAt)
                 },
                 onFailure = { error ->
-                    val causeChain = generateSequence(error) { it.cause }
-                    val authorizationDenied = causeChain.filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
+                    val authorizationDenied = error.isAuthorizationFailure()
                     if (authorizationDenied) {
                         localCatalogs.invalidate(role, "catalog:customers")
                         mutableState.value = mutableState.value.copy(customers = emptyList(), customersLoaded = false)
                     }
-                    val transportFailure = !authorizationDenied && causeChain.any { it is IOException }
+                    val transportFailure = error.isTransportFailure()
                     val snapshot = if (transportFailure) runCatching { localCatalogs.customers(role, search) }.getOrNull() else null
                     val offlineData = snapshot?.let { it.first to it.second }
                     if (offlineData != null) {
                         val fetched = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(offlineData.second))
-                        mutableState.value = mutableState.value.copy(customers = offlineData.first, isLoading = false, customersLoaded = true, error = null, message = "Sin conexión · clientes guardados el $fetched.", customersShowingOfflineSnapshot = true, customersSnapshotAtEpochMs = offlineData.second, offlineNotice = "Esta copia es histórica; las operaciones requieren conexión.")
+                        val pending = pendingCustomerOperations()
+                        mutableState.value = mutableState.value.copy(customers = applyPendingCustomers(offlineData.first, pending).matching(search), pendingCustomerIds = pendingIds(PendingModule.CUSTOMER, pending), isLoading = false, customersLoaded = true, error = null, message = "Sin conexión · clientes guardados el $fetched.", customersShowingOfflineSnapshot = true, customersSnapshotAtEpochMs = offlineData.second, offlineNotice = "Tus cambios se enviarán al servidor al reconectar.")
                     } else mutableState.value = mutableState.value.copy(
                         isLoading = false,
                         customers = emptyList(),
                         customersLoaded = true,
-                        error = if (transportFailure) "Sin conexión y no hay una copia descargada para esta búsqueda." else error.message ?: "No se pudieron consultar los clientes.",
+                        error = if (transportFailure) "Sin conexión; los clientes aún no terminan de descargarse." else error.message ?: "No se pudieron consultar los clientes.",
                         customersShowingOfflineSnapshot = false,
                         offlineNotice = null,
                     )
@@ -147,10 +166,40 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun pendingCustomerOperations() =
+        runCatching { outbox.visibleFor(PendingModule.CUSTOMER) }.getOrDefault(emptyList())
+
+    private fun List<CustomerDto>.matching(search: String): List<CustomerDto> {
+        val term = search.trim()
+        return if (term.isEmpty()) this else filter { customer ->
+            listOf(customer.displayName, customer.email, customer.phone).any { it.contains(term, ignoreCase = true) }
+        }
+    }
+
+    private suspend fun mustQueueCustomerChange(id: Int?): Boolean =
+        id?.let { it < 0 } == true || !NetworkAvailability.hasValidatedInternet(getApplication()) || outbox.hasUnsent()
+
+    private suspend fun queueCustomerChange(role: String, action: String, id: Int?, payload: Any, label: String) {
+        try {
+            val target = id ?: outbox.newTemporaryId()
+            outbox.enqueue(role, PendingModule.CUSTOMER, action, target, payload, PendingDisplay(label))
+            SyncCoordinator.request(getApplication())
+            mutableState.value = mutableState.value.copy(isWorking = false, message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", error = null)
+            loadCustomers(role, activeCustomerSearch)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            mutableState.value = mutableState.value.copy(isWorking = false, error = error.message ?: "No se pudo guardar el cambio.")
+        }
+    }
+
     fun saveCustomer(role: String, id: Int?, request: CustomerWriteRequest) {
         if (role !in CUSTOMER_ROLES || mutableState.value.isWorking) return
         mutableState.value = mutableState.value.copy(isWorking = true, error = null, message = null)
         viewModelScope.launch {
+            val action = if (id == null) PendingAction.CREATE else PendingAction.UPDATE
+            val label = "${if (id == null) "Nuevo cliente" else "Editar cliente"}: ${request.names} ${request.surnames}"
+            if (mustQueueCustomerChange(id)) { queueCustomerChange(role, action, id, request, label); return@launch }
             val result = if (id == null) sales.createCustomer(request) else sales.updateCustomer(id, request)
             result.fold(
                 onSuccess = { saved ->
@@ -164,6 +213,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 },
                 onFailure = { error ->
+                    if (error.neverReachedServer()) { queueCustomerChange(role, action, id, request, label); return@fold }
                     val denied = error.isAuthorizationFailure()
                     if (denied) localCatalogs.invalidate(role, "catalog:customers")
                     mutableState.value = mutableState.value.copy(isWorking = false, customers = if (denied) emptyList() else mutableState.value.customers, error = error.message ?: "No se pudo guardar el cliente.")
@@ -174,6 +224,12 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadCustomerDetail(role: String, id: Int) {
         if (role !in CUSTOMER_ROLES || mutableState.value.isWorking) return
+        // The list row is complete, and a record not yet sent does not exist on the server.
+        val listed = mutableState.value.customers.firstOrNull { it.id == id }
+        if (listed != null && (id < 0 || id in mutableState.value.pendingCustomerIds || !mutableState.value.isOnline)) {
+            mutableState.value = mutableState.value.copy(customerDetail = listed, error = null)
+            return
+        }
         mutableState.value = mutableState.value.copy(isWorking = true, error = null, customerDetail = null)
         viewModelScope.launch {
             val loaded = resolveOneCached(sales.customer(id), role, "sales:customer-detail:$id", mapOf("id" to id.toString()), CustomerDto::class.java)
@@ -187,6 +243,9 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         if (role !in CUSTOMER_ROLES || mutableState.value.isWorking) return
         mutableState.value = mutableState.value.copy(isWorking = true, error = null, message = null)
         viewModelScope.launch {
+            val state = com.europartes.mobile.data.remote.CustomerStateRequest(false)
+            val label = "Desactivar cliente: ${customer.displayName}"
+            if (mustQueueCustomerChange(customer.id)) { queueCustomerChange(role, PendingAction.SET_ACTIVE, customer.id, state, label); return@launch }
             sales.deactivateCustomer(customer.id).fold(
                 onSuccess = {
                     val updatedCustomers = mutableState.value.customers.filterNot { it.id == customer.id }
@@ -194,6 +253,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                     mutableState.value = mutableState.value.copy(customers = updatedCustomers, isWorking = false, message = "Cliente desactivado en el servidor.")
                 },
                 onFailure = { error ->
+                    if (error.neverReachedServer()) { queueCustomerChange(role, PendingAction.SET_ACTIVE, customer.id, state, label); return@fold }
                     if (error.isAuthorizationFailure()) localCatalogs.invalidate(role, "catalog:customers")
                     mutableState.value = mutableState.value.copy(isWorking = false, error = error.message ?: "No se pudo desactivar el cliente.")
                 },
@@ -241,8 +301,8 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
             } else null
             mutableState.value = mutableState.value.copy(
                 configuration = configValue,
-                customers = customerValue.orEmpty(),
-                products = productCache.value.orEmpty().filter { it.estado != false },
+                customers = customerValue.orEmpty().filter { it.id > 0 },
+                products = productCache.value.orEmpty().filter { it.estado != false && it.id > 0 },
                 isLoading = false,
                 pointOfSaleLoaded = true,
                 error = failures.firstOrNull(),
@@ -286,12 +346,23 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                 ),
             ).fold(
                 onSuccess = { response ->
+                    val ticket = SaleTicket(
+                        invoiceId = response.invoice.id,
+                        issuedAtEpochMs = System.currentTimeMillis(),
+                        customer = current.customers.firstOrNull { it.id == current.selectedCustomerId }?.displayName.orEmpty(),
+                        lines = current.cart.mapNotNull { (productId, quantity) ->
+                            current.products.firstOrNull { it.id == productId }?.let { SaleTicketLine(it.nombre, quantity, it.precioUnitario) }
+                        },
+                        subtotal = response.invoice.subtotal,
+                        tax = response.invoice.tax,
+                        total = response.invoice.total,
+                    )
                     mutableState.value = mutableState.value.copy(
                         isWorking = false,
                         cart = emptyMap(),
                         selectedCustomerId = null,
                         lastInvoiceId = response.invoice.id,
-                        message = "${response.message} Factura #${response.invoice.id}; total confirmado por el servidor: ${response.invoice.total}.",
+                        lastTicket = ticket,
                         error = null,
                     )
                     runCatching { offlineStore.invalidateResource("sales:invoice-history") }
@@ -328,11 +399,17 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             val loaded = resolveList(sales.invoiceHistory(filters), role, "sales:invoice-history", invoiceQuery(filters), InvoiceHistoryDto::class.java)
+            val idFilters = filters.customerId.isNotBlank() || filters.employeeId.isNotBlank() || filters.productId.isNotBlank()
             val notice = loaded.fetchedAt.takeIf { loaded.offline }?.let { at ->
-                "Sin conexión · historial consultado el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}."
+                "Sin conexión · historial consultado el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}.${if (idFilters) " Los filtros por identificador se aplican al volver la conexión." else ""}"
             }
             mutableState.value = mutableState.value.copy(history = loaded.value.orEmpty(), isLoading = false, historyLoaded = true, error = loaded.error, message = notice, offlineNotice = notice)
         }
+    }
+
+    fun loadConfiguration(role: String) {
+        activeCustomerRole = activeCustomerRole ?: role
+        loadCurrencyConfiguration()
     }
 
     fun loadCurrencyConfiguration() {
@@ -426,6 +503,7 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearTicket() { mutableState.value = mutableState.value.copy(lastTicket = null) }
     fun clearMessages() { mutableState.value = mutableState.value.copy(error = null, message = null) }
     fun closeInvoiceDetail() { mutableState.value = mutableState.value.copy(invoiceDetail = null) }
 
@@ -448,8 +526,11 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { offlineStore.invalidateResource(resource) }
                 OfflineRead(error = error.message ?: "No tienes autorización para consultar estos datos.")
             } else if (error.isTransportFailure()) {
-                val snapshot = runCatching { offlineStore.readList(role, resource, query, itemType) }.getOrNull()
-                if (snapshot == null) OfflineRead(error = "Sin conexión y todavía no hay una copia local para esta consulta.")
+                // The complete saved list answers date filters locally.
+                val complete = runCatching { offlineStore.readList(role, resource, emptyMap(), itemType) }.getOrNull()
+                val snapshot = complete?.let { it.first.filter { row -> matchesDateFilters(row, query) } to it.second }
+                    ?: runCatching { offlineStore.readList(role, resource, query, itemType) }.getOrNull()
+                if (snapshot == null) OfflineRead(error = "Sin conexión; los datos de este módulo aún no terminan de descargarse.")
                 else OfflineRead(snapshot.first, snapshot.second, offline = true)
             } else OfflineRead(error = error.message ?: "No se pudo consultar la información.")
         },
@@ -503,7 +584,13 @@ class SalesViewModel(application: Application) : AndroidViewModel(application) {
         filters.productId.toIntOrNull()?.takeIf { it > 0 }?.let { put("producto_id", it.toString()) }
     }
 
-    private fun Throwable.isTransportFailure(): Boolean = generateSequence(this) { it.cause }.any { it is IOException }
+    private fun <T> matchesDateFilters(row: T, query: Map<String, String>): Boolean {
+        if (row !is InvoiceHistoryDto) return true
+        val day = row.date.take(10)
+        return query["fecha_inicio"]?.let { day >= it } != false && query["fecha_fin"]?.let { day <= it } != false
+    }
+
+    private fun Throwable.isTransportFailure(): Boolean = canUseOfflineCopy()
     private fun Throwable.isAuthorizationFailure(): Boolean = generateSequence(this) { it.cause }
         .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
 

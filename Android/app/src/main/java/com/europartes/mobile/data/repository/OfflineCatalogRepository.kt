@@ -1,5 +1,7 @@
 package com.europartes.mobile.data.repository
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.europartes.mobile.data.local.LocalDataCipher
 import com.europartes.mobile.data.local.OfflineCatalogDao
 import com.europartes.mobile.data.local.OfflineCatalogMetadataEntity
@@ -17,7 +19,9 @@ class OfflineCatalogRepository(
     private val ownerUserId: () -> Int?,
     private val gson: Gson = Gson(),
 ) {
-    suspend fun saveCatalog(role: String, kind: CatalogKind, includeInactive: Boolean, rows: List<CatalogItem>): Long? {
+    suspend fun saveCatalog(role: String, kind: CatalogKind, includeInactive: Boolean, rows: List<CatalogItem>): Long? = withContext(Dispatchers.Default) { saveCatalogOnCaller(role, kind, includeInactive, rows) }
+
+    private suspend fun saveCatalogOnCaller(role: String, kind: CatalogKind, includeInactive: Boolean, rows: List<CatalogItem>): Long? {
         val resource = resource(kind)
         val query = if (kind == CatalogKind.EMPLOYEES) "includeInactive=$includeInactive" else "all"
         val scope = scope(role, resource, query) ?: return null
@@ -49,7 +53,9 @@ class OfflineCatalogRepository(
         return replaceRows(role, resource, scope, entities)
     }
 
-    suspend fun catalog(role: String, kind: CatalogKind, includeInactive: Boolean): Pair<List<CatalogItem>, Long>? {
+    suspend fun catalog(role: String, kind: CatalogKind, includeInactive: Boolean): Pair<List<CatalogItem>, Long>? = withContext(Dispatchers.Default) { catalogOnCaller(role, kind, includeInactive) }
+
+    private suspend fun catalogOnCaller(role: String, kind: CatalogKind, includeInactive: Boolean): Pair<List<CatalogItem>, Long>? {
         val resource = resource(kind)
         val query = if (kind == CatalogKind.EMPLOYEES) "includeInactive=$includeInactive" else "all"
         val scope = scope(role, resource, query) ?: return null
@@ -92,9 +98,13 @@ class OfflineCatalogRepository(
             DepartmentDto(it.id, it.title, it.subtitle.orEmpty(), it.registeredAt)
         }
 
-    suspend fun saveCustomers(role: String, search: String, rows: List<CustomerDto>): Long? {
+    /** Only the complete list is persisted; a filtered result must not replace it. */
+    suspend fun saveCustomers(role: String, search: String, rows: List<CustomerDto>): Long? = withContext(Dispatchers.Default) { saveCustomersOnCaller(role, search, rows) }
+
+    private suspend fun saveCustomersOnCaller(role: String, search: String, rows: List<CustomerDto>): Long? {
+        if (search.isNotBlank()) return System.currentTimeMillis()
         val resource = "catalog:customers"
-        val query = "search=${search.trim()}"
+        val query = "search="
         val scope = scope(role, resource, query) ?: return null
         val entities = runCatching { rows.map { row ->
             val key = "${scope.owner}:${scope.queryHash}:${row.id}"
@@ -109,13 +119,18 @@ class OfflineCatalogRepository(
         return replaceRows(role, resource, scope, entities, replaceAllQueryScopes = true)
     }
 
-    suspend fun customers(role: String, search: String): Pair<List<CustomerDto>, Long>? {
-        val resource = "catalog:customers"
-        val query = "search=${search.trim()}"
-        val data = readRows(role, resource, query) ?: return null
+    /** Searches the saved list locally, so any term works without a connection. */
+    suspend fun customers(role: String, search: String): Pair<List<CustomerDto>, Long>? = withContext(Dispatchers.Default) { customersOnCaller(role, search) }
+
+    private suspend fun customersOnCaller(role: String, search: String): Pair<List<CustomerDto>, Long>? {
+        val data = readRows(role, "catalog:customers", "search=") ?: return null
+        val term = search.trim()
         return data.first.map { row ->
             val json = LocalDataCipher.decrypt(requireNotNull(row.encryptedPayload), row.cacheKey)
             gson.fromJson(json, CustomerDto::class.java)
+        }.filter { customer ->
+            term.isEmpty() || listOf(customer.names, customer.surnames, customer.email, customer.phone, customer.displayName)
+                .any { it.contains(term, ignoreCase = true) }
         } to data.second
     }
 

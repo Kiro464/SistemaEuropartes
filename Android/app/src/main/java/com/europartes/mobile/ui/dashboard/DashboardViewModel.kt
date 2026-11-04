@@ -40,6 +40,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val tokenStore = TokenStore(application)
     private val database = DatabaseProvider.get(application)
     private val snapshotStore = OfflineSnapshotStore(database.productDao(), database.offlineReportDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+    private val moduleStore = com.europartes.mobile.data.repository.OfflineModuleSnapshotStore(database.offlineModuleSnapshotDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
     private val repository = DashboardRepository(
         ApiClient.dashboardApi(tokenStore),
         ApiClient.salesApi(tokenStore),
@@ -82,8 +83,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun loadCurrencyConfiguration() {
         if (mutableState.value.exchangeRate != null) return
         currencyJob = viewModelScope.launch {
+            val role = activeRole ?: tokenStore.roleForLocalPartition()
             repository.loadCurrencyConfiguration().onSuccess { configuration ->
                 mutableState.value = mutableState.value.copy(exchangeRate = configuration.exchangeRate)
+            }.onFailure {
+                val saved = role?.let { runCatching { moduleStore.readOne(it, "sales:configuration", emptyMap(), SaleConfigurationDto::class.java) }.getOrNull() }
+                if (saved != null) mutableState.value = mutableState.value.copy(exchangeRate = saved.first.exchangeRate)
             }
         }
     }

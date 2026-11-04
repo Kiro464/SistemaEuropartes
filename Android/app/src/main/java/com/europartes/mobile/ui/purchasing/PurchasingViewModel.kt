@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.DatabaseProvider
+import com.europartes.mobile.data.local.NetworkAvailability
 import com.europartes.mobile.data.local.ProductEntity
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.remote.*
@@ -14,6 +15,19 @@ import com.europartes.mobile.data.repository.LocalProductRepository
 import com.europartes.mobile.data.repository.PurchasingRepository
 import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
 import com.europartes.mobile.data.repository.OfflineCatalogRepository
+import com.europartes.mobile.data.sync.DecodedOperation
+import com.europartes.mobile.data.sync.OutboxRepository
+import com.europartes.mobile.data.sync.PendingAction
+import com.europartes.mobile.data.sync.PendingDisplay
+import com.europartes.mobile.data.sync.PendingModule
+import com.europartes.mobile.data.sync.SyncCoordinator
+import com.europartes.mobile.data.sync.applyPendingCatalog
+import com.europartes.mobile.data.sync.applyPendingProducts
+import com.europartes.mobile.data.sync.applyPendingPurchases
+import com.europartes.mobile.data.sync.applyPendingRequests
+import com.europartes.mobile.data.sync.canUseOfflineCopy
+import com.europartes.mobile.data.sync.neverReachedServer
+import com.europartes.mobile.data.sync.pendingIds
 import java.io.IOException
 import retrofit2.HttpException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +66,9 @@ data class PurchasingUiState(
     val messageIsError: Boolean = false,
     val hasLoaded: Boolean = false,
     val offlineNotice: String? = null,
+    val isOnline: Boolean = true,
+    val pendingRequestIds: Set<Int> = emptySet(),
+    val pendingPurchaseIds: Set<Int> = emptySet(),
 )
 
 class PurchasingViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,6 +87,19 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
     private val _uiState = MutableStateFlow(PurchasingUiState())
     val uiState: StateFlow<PurchasingUiState> = _uiState.asStateFlow()
     private var activeRole: String? = null
+    private val outbox = OutboxRepository(database.pendingOperationDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+
+    init {
+        viewModelScope.launch {
+            NetworkAvailability.observe(application).collect { online -> _uiState.value = _uiState.value.copy(isOnline = online) }
+        }
+        viewModelScope.launch {
+            SyncCoordinator.dataChanged.collect {
+                if (_uiState.value.message?.startsWith(com.europartes.mobile.data.sync.OFFLINE_SAVED_PREFIX) == true) clearMessage()
+                if (_uiState.value.hasLoaded) activeRole?.let { load(it, _uiState.value.filters, force = true) }
+            }
+        }
+    }
 
     fun load(role: String, filters: PurchaseFilters = _uiState.value.filters, force: Boolean = false) {
         if (_uiState.value.isLoading || _uiState.value.isWorking) return
@@ -96,13 +126,21 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
                     item.supplierId?.let { id -> item.supplier?.takeIf(String::isNotBlank)?.let { name -> CatalogItem(id, name) } }
                 }).distinctBy { it.id }
             }
-            val offlineNotice = staleDates.maxOrNull()?.let { at ->
-                "Sin conexión · datos guardados el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}. Las operaciones requieren internet."
+            val offlineNotice = staleDates.maxOrNull()?.takeIf {
+                requestList.offline || purchaseList.offline || historyList.offline
+            }?.let { at ->
+                val partialFilters = if (historyList.offline && (filters.productId.isNotBlank() || filters.search.isNotBlank())) " El filtro por producto se aplica al volver la conexión." else ""
+                "Sin conexión · datos guardados el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}. Tus cambios se enviarán al reconectar; aprobar y recibir compras requieren internet.$partialFilters"
             }
+            val pending = runCatching { outbox.visibleFor(PendingModule.PURCHASE_REQUEST, PendingModule.PURCHASE, PendingModule.PRODUCT, PendingModule.SUPPLIER) }.getOrDefault(emptyList())
             _uiState.value = _uiState.value.copy(
-                requests = requestList.rows, purchases = purchaseList.rows,
-                history = historyList.rows, products = productList.rows.filter { it.estado != false },
-                suppliers = supplierOptions.filter { it.active != false }, isLoading = false,
+                requests = applyPendingRequests(requestList.rows, pending),
+                purchases = applyPendingPurchases(purchaseList.rows, pending),
+                pendingRequestIds = pendingIds(PendingModule.PURCHASE_REQUEST, pending),
+                pendingPurchaseIds = pendingIds(PendingModule.PURCHASE, pending),
+                history = historyList.rows,
+                products = applyPendingProducts(productList.rows, pending, includeInactive = false),
+                suppliers = applyPendingCatalog(CatalogKind.SUPPLIERS, supplierOptions, pending).filter { it.active != false }, isLoading = false,
                 error = errors.distinct().joinToString(" ").takeIf { it.isNotBlank() }, hasLoaded = true,
                 offlineNotice = offlineNotice,
             )
@@ -118,6 +156,8 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
 
     fun requestDetail(id: Int, onResult: (Result<PurchaseRequestDto>) -> Unit) {
         if (_uiState.value.isWorking) return
+        val listed = _uiState.value.requests.firstOrNull { it.id == id }
+        if (listed != null && (id < 0 || id in _uiState.value.pendingRequestIds || !_uiState.value.isOnline)) { onResult(Result.success(listed)); return }
         viewModelScope.launch {
             val role = activeRole ?: return@launch
             onResult(resolveOne(repository.request(id), role, "purchasing:request:$id", mapOf("id" to id.toString()), PurchaseRequestDto::class.java))
@@ -125,6 +165,8 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
     }
     fun purchaseDetail(id: Int, onResult: (Result<PurchaseDto>) -> Unit) {
         if (_uiState.value.isWorking) return
+        val listed = _uiState.value.purchases.firstOrNull { it.id == id }
+        if (listed != null && (id < 0 || id in _uiState.value.pendingPurchaseIds || !_uiState.value.isOnline)) { onResult(Result.success(listed)); return }
         viewModelScope.launch {
             val role = activeRole ?: return@launch
             onResult(resolveOne(repository.purchase(id), role, "purchasing:purchase:$id", mapOf("id" to id.toString()), PurchaseDto::class.java))
@@ -138,31 +180,46 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun createRequest(role: String, observations: String, details: List<RequestLineWrite>) = write(role, "Solicitud creada en el servidor.") {
-        require(details.isNotEmpty()) { "Agrega al menos un producto." }
-        require(details.all { it.quantity > 0 }) { "Todas las cantidades deben ser mayores que cero." }
-        repository.createRequest(PurchaseRequestWrite(observations.trim(), details))
+    fun createRequest(role: String, observations: String, details: List<RequestLineWrite>) {
+        val body = PurchaseRequestWrite(observations.trim(), details)
+        writeOrQueue(role, "Solicitud creada en el servidor.", PendingModule.PURCHASE_REQUEST, PendingAction.CREATE, null, body, "Nueva solicitud de compra", productNames(details.map { it.productId })) {
+            require(details.isNotEmpty()) { "Agrega al menos un producto." }
+            require(details.all { it.quantity > 0 }) { "Todas las cantidades deben ser mayores que cero." }
+            repository.createRequest(body)
+        }
     }
-    fun updateRequest(role: String, id: Int, observations: String, details: List<RequestLineWrite>) = write(role, "Solicitud pendiente actualizada.") {
-        require(details.isNotEmpty() && details.all { it.quantity > 0 }) { "Agrega productos con cantidades mayores que cero." }
-        repository.updateRequest(id, PurchaseRequestWrite(observations.trim(), details))
+    fun updateRequest(role: String, id: Int, observations: String, details: List<RequestLineWrite>) {
+        val body = PurchaseRequestWrite(observations.trim(), details)
+        writeOrQueue(role, "Solicitud pendiente actualizada.", PendingModule.PURCHASE_REQUEST, PendingAction.UPDATE, id, body, "Editar solicitud de compra", productNames(details.map { it.productId })) {
+            require(details.isNotEmpty() && details.all { it.quantity > 0 }) { "Agrega productos con cantidades mayores que cero." }
+            repository.updateRequest(id, body)
+        }
     }
-    fun deleteRequest(role: String, id: Int) = write(role, "Solicitud eliminada.") { repository.deleteRequest(id) }
-    fun acceptRequest(role: String, id: Int) = write(role, "Solicitud aceptada.") { repository.acceptRequest(id) }
-    fun rejectRequest(role: String, id: Int, reason: String) = write(role, "Solicitud rechazada.") { repository.rejectRequest(id, reason.trim()) }
+    fun deleteRequest(role: String, id: Int) = writeOrQueue(role, "Solicitud eliminada.", PendingModule.PURCHASE_REQUEST, PendingAction.DELETE, id, null, "Eliminar solicitud de compra") { repository.deleteRequest(id) }
+    fun acceptRequest(role: String, id: Int) = writeOrQueue(role, "Solicitud aceptada.", PendingModule.PURCHASE_REQUEST, PendingAction.ACCEPT, id, null, "Aceptar solicitud de compra") { repository.acceptRequest(id) }
+    fun rejectRequest(role: String, id: Int, reason: String) = writeOrQueue(role, "Solicitud rechazada.", PendingModule.PURCHASE_REQUEST, PendingAction.REJECT, id, RejectRequest(reason.trim()), "Rechazar solicitud de compra") { repository.rejectRequest(id, reason.trim()) }
 
-    fun createPurchase(role: String, supplierId: Int?, lines: List<PurchaseLineWrite>) = write(role, "Compra creada por el servidor.") {
-        require(supplierId != null) { "Selecciona un proveedor." }
-        validatePurchaseLines(lines)
-        repository.createPurchase(PurchaseWrite(supplierId, lines))
+    fun createPurchase(role: String, supplierId: Int?, lines: List<PurchaseLineWrite>) {
+        if (supplierId == null) { showValidation("Selecciona un proveedor."); return }
+        val problem = runCatching { validatePurchaseLines(lines) }.exceptionOrNull()
+        if (problem != null) { showValidation(problem.message ?: "Revisa las líneas de la compra."); return }
+        val body = PurchaseWrite(supplierId, lines)
+        writeOrQueue(role, "Compra creada por el servidor.", PendingModule.PURCHASE, PendingAction.CREATE, null, body, "Nueva compra", productNames(lines.map { it.productId }) + supplierName(supplierId)) {
+            repository.createPurchase(body)
+        }
     }
-    fun createPurchaseFromRequest(role: String, supplierId: Int?, requestId: Int, costs: List<PurchaseCostWrite>) = write(role, "Compra creada desde la solicitud aceptada.") {
-        require(supplierId != null) { "Selecciona un proveedor." }
-        require(costs.isNotEmpty() && costs.all { validCost(it.unitCost) }) { "Indica costos válidos para todos los productos solicitados." }
-        repository.purchaseFromRequest(PurchaseFromRequestWrite(supplierId, requestId, costs))
+    fun createPurchaseFromRequest(role: String, supplierId: Int?, requestId: Int, costs: List<PurchaseCostWrite>) {
+        if (supplierId == null) { showValidation("Selecciona un proveedor."); return }
+        if (costs.isEmpty() || !costs.all { validCost(it.unitCost) }) { showValidation("Indica costos válidos para todos los productos solicitados."); return }
+        val body = PurchaseFromRequestWrite(supplierId, requestId, costs)
+        val requestLines = _uiState.value.requests.firstOrNull { it.id == requestId }?.details.orEmpty()
+        val display = requestLines.flatMap { listOf("p${it.productId}" to it.productName, "q${it.productId}" to it.quantity.toString()) }.toMap() + supplierName(supplierId)
+        writeOrQueue(role, "Compra creada desde la solicitud aceptada.", PendingModule.PURCHASE, PendingAction.CREATE_FROM_REQUEST, null, body, "Compra desde solicitud", display) {
+            repository.purchaseFromRequest(body)
+        }
     }
-    fun startPurchase(role: String, id: Int) = write(role, "Compra iniciada.") { repository.startPurchase(id) }
-    fun cancelPurchase(role: String, id: Int) = write(role, "Compra cancelada.") { repository.cancelPurchase(id) }
+    fun startPurchase(role: String, id: Int) = writeOrQueue(role, "Compra iniciada.", PendingModule.PURCHASE, PendingAction.START, id, null, "Iniciar compra") { repository.startPurchase(id) }
+    fun cancelPurchase(role: String, id: Int) = writeOrQueue(role, "Compra cancelada.", PendingModule.PURCHASE, PendingAction.CANCEL, id, null, "Cancelar compra") { repository.cancelPurchase(id) }
     fun approvePurchase(role: String, id: Int) = write(role, "Compra aprobada; la factura fue procesada por el servidor.") { repository.approvePurchase(id) }
     fun receivePurchase(role: String, id: Int) = write(role, "Recepción completa confirmada por el servidor; el inventario fue actualizado.", refreshProductCache = true) { repository.receivePurchase(id) }
 
@@ -179,6 +236,63 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
     private fun validCost(value: String): Boolean = value.replace(',', '.').toBigDecimalOrNull()?.let {
         it > BigDecimal.ZERO && it.scale().coerceAtLeast(0) <= 2 && it.precision() <= 10
     } == true
+
+    private fun productNames(ids: List<Int>): Map<String, String> =
+        ids.mapNotNull { id -> _uiState.value.products.firstOrNull { it.id == id }?.let { "p$id" to it.nombre } }.toMap()
+
+    private fun supplierName(id: Int): Map<String, String> =
+        _uiState.value.suppliers.firstOrNull { it.id == id }?.let { mapOf("proveedor" to it.title) }.orEmpty()
+
+    private fun showValidation(message: String) {
+        _uiState.value = _uiState.value.copy(message = message, messageIsError = true)
+    }
+
+    /** Sends now when connected with nothing queued; otherwise records the change for later. */
+    private fun <T> writeOrQueue(
+        role: String,
+        success: String,
+        module: String,
+        action: String,
+        targetId: Int?,
+        payload: Any?,
+        label: String,
+        display: Map<String, String> = emptyMap(),
+        operation: suspend () -> Result<T>,
+    ) {
+        if (_uiState.value.isWorking || _uiState.value.isLoading) return
+        viewModelScope.launch {
+            val mustQueue = targetId?.let { it < 0 } == true || !NetworkAvailability.hasValidatedInternet(getApplication<Application>()) || outbox.hasUnsent()
+            if (mustQueue) { queue(role, module, action, targetId, payload, label, display); return@launch }
+            _uiState.value = _uiState.value.copy(isWorking = true, message = null, messageIsError = false)
+            val result: Result<T> = try { operation() } catch (cancelled: CancellationException) { throw cancelled } catch (error: Throwable) { Result.failure(error) }
+            result.fold(
+                onSuccess = {
+                    listOf("purchasing:requests", "purchasing:purchases", "purchasing:history").forEach { resource -> runCatching { offlineStore.invalidateResource(resource) } }
+                    _uiState.value = _uiState.value.copy(isWorking = false, message = success, messageIsError = false)
+                    load(role, _uiState.value.filters, force = true)
+                },
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(isWorking = false)
+                    if (error.neverReachedServer()) queue(role, module, action, targetId, payload, label, display)
+                    else _uiState.value = _uiState.value.copy(message = error.message ?: "La operación no fue confirmada.", messageIsError = true)
+                },
+            )
+        }
+    }
+
+    private suspend fun queue(role: String, module: String, action: String, targetId: Int?, payload: Any?, label: String, display: Map<String, String>) {
+        try {
+            val target = targetId ?: outbox.newTemporaryId()
+            outbox.enqueue(role, module, action, target, payload, PendingDisplay(label, display))
+            SyncCoordinator.request(getApplication())
+            _uiState.value = _uiState.value.copy(message = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión.", messageIsError = false)
+            load(role, _uiState.value.filters, force = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _uiState.value = _uiState.value.copy(message = error.message ?: "No se pudo guardar el cambio.", messageIsError = true)
+        }
+    }
 
     private fun <T> write(role: String, success: String, refreshProductCache: Boolean = false, operation: suspend () -> Result<T>) {
         if (_uiState.value.isWorking || _uiState.value.isLoading) return
@@ -212,7 +326,7 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
         Result.failure(error)
     }
 
-    private data class CachedList<T>(val rows: List<T>, val staleAt: Long? = null, val error: String? = null)
+    private data class CachedList<T>(val rows: List<T>, val staleAt: Long? = null, val error: String? = null, val offline: Boolean = false)
 
     private suspend fun resolveProducts(): CachedList<ProductDto> {
         val owner = tokenStore.userIdForLocalPartition()
@@ -272,9 +386,12 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
                 runCatching { offlineStore.invalidateResource(resource) }
                 CachedList(emptyList(), error = error.message ?: "Acceso no autorizado a $resource.")
             } else if (error.isTransportFailure()) {
-                val cached = runCatching { offlineStore.readList(role, resource, query, itemType) }.getOrNull()
-                if (cached == null) CachedList(emptyList(), error = "Sin conexión; todavía no hay datos guardados para $resource con estos filtros.")
-                else CachedList(cached.first, cached.second)
+                // The complete saved list answers any filter locally.
+                val complete = runCatching { offlineStore.readList(role, resource, emptyMap(), itemType) }.getOrNull()
+                val cached = complete?.let { it.first.filter { row -> matchesOfflineFilters(row, query) } to it.second }
+                    ?: runCatching { offlineStore.readList(role, resource, query, itemType) }.getOrNull()
+                if (cached == null) CachedList(emptyList(), error = "Sin conexión; los datos de este módulo aún no terminan de descargarse.")
+                else CachedList(cached.first, cached.second, offline = true)
             } else CachedList(emptyList(), error = error.message ?: "No se pudo consultar $resource.")
         },
     )
@@ -306,7 +423,17 @@ class PurchasingViewModel(application: Application) : AndroidViewModel(applicati
         },
     )
 
-    private fun Throwable.isTransportFailure(): Boolean = generateSequence(this) { it.cause }.any { it is IOException }
+    private fun <T> matchesOfflineFilters(row: T, query: Map<String, String>): Boolean {
+        if (row !is PurchaseHistoryDto) return true
+        val day = row.date.orEmpty().take(10)
+        return query["fecha_inicio"]?.let { day >= it } != false &&
+            query["fecha_fin"]?.let { day <= it } != false &&
+            query["estado"]?.let { row.status == it } != false &&
+            query["proveedor_id"]?.let { row.supplierId?.toString() == it } != false &&
+            query["solicitud_id"]?.let { row.requestId?.toString() == it } != false
+    }
+
+    private fun Throwable.isTransportFailure(): Boolean = canUseOfflineCopy()
     private fun Throwable.isAuthorizationFailure(): Boolean = generateSequence(this) { it.cause }
         .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
 

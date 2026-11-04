@@ -1,5 +1,7 @@
 package com.europartes.mobile.data.repository
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.europartes.mobile.data.local.LocalDataCipher
 import com.europartes.mobile.data.local.OfflineModuleSnapshotDao
 import com.europartes.mobile.data.local.OfflineModuleSnapshotEntity
@@ -15,7 +17,9 @@ class OfflineModuleSnapshotStore(
     private val ownerUserId: () -> Int?,
     private val gson: Gson = Gson(),
 ) {
-    suspend fun save(role: String, resource: String, query: Map<String, String> = emptyMap(), payload: Any): Long? {
+    suspend fun save(role: String, resource: String, query: Map<String, String> = emptyMap(), payload: Any): Long? = withContext(Dispatchers.Default) { saveOnCaller(role, resource, query, payload) }
+
+    private suspend fun saveOnCaller(role: String, resource: String, query: Map<String, String> = emptyMap(), payload: Any): Long? {
         val owner = ownerUserId()?.takeIf { it > 0 } ?: return null
         return try {
             val queryHash = queryHash(query)
@@ -32,7 +36,9 @@ class OfflineModuleSnapshotStore(
         }
     }
 
-    suspend fun <T> readList(
+    suspend fun <T> readList(role: String, resource: String, query: Map<String, String> = emptyMap(), itemType: Class<T>): Pair<List<T>, Long>? = withContext(Dispatchers.Default) { readListOnCaller(role, resource, query, itemType) }
+
+    private suspend fun <T> readListOnCaller(
         role: String,
         resource: String,
         query: Map<String, String> = emptyMap(),
@@ -47,7 +53,9 @@ class OfflineModuleSnapshotStore(
         }
     }
 
-    suspend fun <T> readOne(
+    suspend fun <T> readOne(role: String, resource: String, query: Map<String, String> = emptyMap(), itemType: Class<T>): Pair<T, Long>? = withContext(Dispatchers.Default) { readOneOnCaller(role, resource, query, itemType) }
+
+    private suspend fun <T> readOneOnCaller(
         role: String,
         resource: String,
         query: Map<String, String> = emptyMap(),
@@ -59,6 +67,11 @@ class OfflineModuleSnapshotStore(
         } catch (_: Exception) {
             null
         }
+    }
+
+    suspend fun exists(role: String, resource: String, query: Map<String, String> = emptyMap()): Boolean {
+        val owner = ownerUserId()?.takeIf { it > 0 } ?: return false
+        return dao.find(owner, role, resource, queryHash(query)) != null
     }
 
     suspend fun invalidateResource(resource: String) {

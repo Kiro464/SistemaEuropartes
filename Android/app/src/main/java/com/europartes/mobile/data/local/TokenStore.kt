@@ -8,6 +8,8 @@ import com.google.gson.JsonParser
 
 /** Stores JWTs encrypted at rest using an Android Keystore-backed master key. */
 class TokenStore(context: Context) {
+    val appContext: Context = context.applicationContext
+
     private val preferences = EncryptedSharedPreferences.create(
         context.applicationContext,
         "europartes_secure_session",
@@ -41,6 +43,15 @@ class TokenStore(context: Context) {
         return runCatching {
             val payload = String(Base64.decode(segment, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
             JsonParser.parseString(payload).asJsonObject.get("user_id")?.asInt?.takeIf { it > 0 }
+        }.getOrNull()
+    }
+
+    /** Functional role from the token claims, used only to decide what to read from Room. */
+    fun roleForLocalPartition(): String? {
+        val segment = accessToken()?.split('.')?.getOrNull(1) ?: return null
+        return runCatching {
+            val payload = String(Base64.decode(segment, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
+            JsonParser.parseString(payload).asJsonObject.get("grupo")?.asString?.takeIf(String::isNotBlank)
         }.getOrNull()
     }
 

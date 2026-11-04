@@ -71,7 +71,15 @@ object DatabaseProvider {
         }
     }
 
-    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+    private val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS pending_operations (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, ownerUserId INTEGER NOT NULL, roleScope TEXT NOT NULL, module TEXT NOT NULL, action TEXT NOT NULL, targetId INTEGER, encryptedPayload TEXT, encryptedDisplay TEXT NOT NULL, state TEXT NOT NULL, createdAtEpochMs INTEGER NOT NULL, updatedAtEpochMs INTEGER NOT NULL, attemptCount INTEGER NOT NULL, lastError TEXT)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_pending_operations_ownerUserId_state ON pending_operations (ownerUserId, state)")
+            database.execSQL("CREATE TABLE IF NOT EXISTS pending_id_map (ownerUserId INTEGER NOT NULL, module TEXT NOT NULL, tempId INTEGER NOT NULL, serverId INTEGER NOT NULL, PRIMARY KEY(ownerUserId, module, tempId))")
+        }
+    }
+
+    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
 
     @Volatile private var instance: EuropartesDatabase? = null
 

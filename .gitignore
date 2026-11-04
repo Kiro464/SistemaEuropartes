@@ -408,3 +408,6 @@ pip-selfcheck.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/django,python,pycharm,virtualenv,visualstudiocode
+
+# Claude Code: skills y agentes de terceros, solo locales
+.claude/

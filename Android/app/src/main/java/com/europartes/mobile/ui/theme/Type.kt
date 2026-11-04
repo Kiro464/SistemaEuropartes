@@ -4,12 +4,13 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 
+// The web uses IBM Plex Sans. Swapping this value is all that a bundled font would need.
 private val EuropartesSans = FontFamily.SansSerif
 
-private fun style(size: TextUnit, weight: FontWeight, lineHeight: TextUnit, tracking: TextUnit = TextUnit.Unspecified) =
+private fun style(size: TextUnit, weight: FontWeight, lineHeight: TextUnit, tracking: TextUnit = 0.sp) =
     TextStyle(
         fontFamily = EuropartesSans,
         fontSize = size,
@@ -18,18 +19,22 @@ private fun style(size: TextUnit, weight: FontWeight, lineHeight: TextUnit, trac
         letterSpacing = tracking,
     )
 
+// Mirrors brand.css: small labels instead of uppercase, weight 600 titles with tight tracking.
 val Typography = Typography(
-    displaySmall = style(36.sp, FontWeight.Bold, 42.sp, (-0.7).sp),
-    headlineLarge = style(30.sp, FontWeight.Bold, 36.sp, (-0.45).sp),
-    headlineMedium = style(25.sp, FontWeight.Bold, 31.sp, (-0.3).sp),
-    headlineSmall = style(22.sp, FontWeight.SemiBold, 28.sp),
-    titleLarge = style(20.sp, FontWeight.SemiBold, 26.sp),
-    titleMedium = style(16.sp, FontWeight.SemiBold, 22.sp),
+    displaySmall = style(32.sp, FontWeight.SemiBold, 38.sp, (-0.6).sp),
+    headlineLarge = style(28.sp, FontWeight.SemiBold, 34.sp, (-0.5).sp),
+    headlineMedium = style(23.sp, FontWeight.SemiBold, 29.sp, (-0.35).sp),
+    headlineSmall = style(20.sp, FontWeight.SemiBold, 26.sp, (-0.25).sp),
+    titleLarge = style(18.sp, FontWeight.SemiBold, 24.sp, (-0.2).sp),
+    titleMedium = style(15.sp, FontWeight.SemiBold, 21.sp, (-0.1).sp),
     titleSmall = style(14.sp, FontWeight.SemiBold, 20.sp),
-    bodyLarge = style(16.sp, FontWeight.Normal, 24.sp),
+    bodyLarge = style(15.sp, FontWeight.Normal, 23.sp),
     bodyMedium = style(14.sp, FontWeight.Normal, 21.sp),
     bodySmall = style(12.sp, FontWeight.Normal, 17.sp),
-    labelLarge = style(14.sp, FontWeight.SemiBold, 20.sp),
-    labelMedium = style(12.sp, FontWeight.Medium, 16.sp),
-    labelSmall = style(11.sp, FontWeight.Medium, 15.sp),
+    labelLarge = style(14.sp, FontWeight.Medium, 20.sp),
+    labelMedium = style(13.sp, FontWeight.Medium, 18.sp),
+    labelSmall = style(12.sp, FontWeight.Medium, 16.sp),
 )
+
+/** Figures line up in columns of money and quantities, like `tabular-nums` on the web. */
+val TextStyle.tabular: TextStyle get() = copy(fontFeatureSettings = "tnum")

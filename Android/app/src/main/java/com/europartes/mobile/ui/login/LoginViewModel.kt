@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.local.DatabaseProvider
+import com.europartes.mobile.data.local.NetworkAvailability
 import com.europartes.mobile.data.remote.ApiClient
 import com.europartes.mobile.data.remote.AuthenticatedUser
 import com.europartes.mobile.data.repository.AuthRepository
@@ -24,7 +25,7 @@ data class LoginUiState(
     val isRestoringSession: Boolean = false,
     val canRetrySessionRestore: Boolean = false,
     val authenticatedUser: AuthenticatedUser? = null,
-    val offlineReadOnlySession: Boolean = false,
+    val offlineSession: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -42,11 +43,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { offlineSnapshots.migrateLegacySnapshots() }
         viewModelScope.launch {
             SessionInvalidation.events.collect {
-                val previousOwner = tokenStore.userIdForLocalPartition()
+                // Local data and queued changes stay in Room: they sync after signing in again.
                 repository.logout()
-                previousOwner?.let { clearPrivateAccountCache(it) }
                 _uiState.value = LoginUiState(
-                    errorMessage = "La sesión expiró. Inicia sesión nuevamente.",
+                    errorMessage = "La sesión expiró. Inicia sesión nuevamente para sincronizar tus cambios.",
                 )
             }
         }
@@ -100,10 +100,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             errorMessage = null,
         )
         viewModelScope.launch {
+            if (!NetworkAvailability.hasValidatedInternet(getApplication<Application>())) {
+                val localUser = repository.offlineUser()
+                if (localUser != null) {
+                    _uiState.value = LoginUiState(authenticatedUser = localUser, offlineSession = true)
+                    return@launch
+                }
+            }
             val result = repository.restoreSession()
-            val restoreError = result?.exceptionOrNull()
-            val isConnectivityFailure = generateSequence(restoreError) { it.cause }.any { it is java.io.IOException }
-            val offlineUser = if (isConnectivityFailure) repository.offlineReadOnlyUser() else null
+            // Only an explicit rejection clears the tokens; any other failure keeps the session usable.
+            val offlineUser = if (result?.isFailure == true) repository.offlineUser() else null
             _uiState.value = when {
                 result == null -> LoginUiState()
                 result.isSuccess -> {
@@ -112,7 +118,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 offlineUser != null -> LoginUiState(
                     authenticatedUser = offlineUser,
-                    offlineReadOnlySession = true,
+                    offlineSession = true,
                 )
                 else -> {
                     val canRetry = repository.hasStoredSession()

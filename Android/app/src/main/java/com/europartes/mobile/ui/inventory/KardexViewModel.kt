@@ -16,6 +16,7 @@ import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.data.repository.KardexFilters
 import com.europartes.mobile.data.repository.KardexRepository
 import com.europartes.mobile.data.repository.ProductRepository
+import com.europartes.mobile.data.sync.canUseOfflineCopy
 import java.io.IOException
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
@@ -106,8 +107,11 @@ class KardexViewModel(application: Application) : AndroidViewModel(application) 
                         runCatching { offlineStore.invalidateResource("inventory:kardex") }
                         mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = error.message ?: "No tienes autorización para consultar el Kardex.", offlineNotice = null)
                     } else if (error.isTransportFailure()) {
-                        val cached = runCatching { offlineStore.readList(role, "inventory:kardex", current.filters.asQueryMap(), InventoryMovementDto::class.java) }.getOrNull()
-                        if (cached == null) mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = "Sin conexión y todavía no hay un Kardex guardado con estos filtros.", offlineNotice = null)
+                        // The complete saved Kardex answers any filter locally.
+                        val complete = runCatching { offlineStore.readList(role, "inventory:kardex", emptyMap(), InventoryMovementDto::class.java) }.getOrNull()
+                        val cached = complete?.let { it.first.filter(current.filters::matches) to it.second }
+                            ?: runCatching { offlineStore.readList(role, "inventory:kardex", current.filters.asQueryMap(), InventoryMovementDto::class.java) }.getOrNull()
+                        if (cached == null) mutableState.value = mutableState.value.copy(movements = emptyList(), isLoading = false, hasLoaded = true, errorMessage = "Sin conexión; el Kardex aún no termina de descargarse.", offlineNotice = null)
                         else {
                             val notice = "Sin conexión · movimientos consultados el ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(cached.second))}. Exportar requiere conexión."
                             mutableState.value = mutableState.value.copy(movements = cached.first, isLoading = false, hasLoaded = true, errorMessage = null, message = notice, offlineNotice = notice)
@@ -226,7 +230,7 @@ class KardexViewModel(application: Application) : AndroidViewModel(application) 
         return null
     }
 
-    private fun Throwable.isTransportFailure(): Boolean = generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable.isTransportFailure(): Boolean = canUseOfflineCopy()
     private fun Throwable.isAuthorizationFailure(): Boolean = generateSequence(this) { it.cause }
         .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
 

@@ -50,7 +50,7 @@ class OfflineRoomPersistenceTest {
             assertNotNull(catalogRepository.saveCatalog(role, kind, includeInactive = false, rows = listOf(item)))
         }
         val customer = CustomerDto(91, "Persona", "Ficticia", "000-TEST", "Dirección de prueba", "offline@example.invalid")
-        assertNotNull(catalogRepository.saveCustomers(role, "persona", listOf(customer)))
+        assertNotNull(catalogRepository.saveCustomers(role, "", listOf(customer)))
         val moduleStore = OfflineModuleSnapshotStore(database.offlineModuleSnapshotDao(), ownerUserId = { owner })
         val moduleQuery = mapOf("fecha_inicio" to "2026-10-01", "cliente_id" to "91")
         val moduleFetchedAt = moduleStore.save("Vendedor", "sales:invoice-history", moduleQuery, listOf(customer))
@@ -62,7 +62,7 @@ class OfflineRoomPersistenceTest {
             owner,
             role,
             "catalog:customers",
-            sha256("$role\u0000catalog:customers\u0000search=persona"),
+            sha256("$role\u0000catalog:customers\u0000search="),
         )
         assertEquals(1, customerRows.size)
         assertFalse(customerRows.single().encryptedPayload!!.contains("Ficticia"))

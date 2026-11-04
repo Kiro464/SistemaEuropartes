@@ -3,7 +3,12 @@ package com.europartes.mobile.ui.security
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.europartes.mobile.data.local.DatabaseProvider
+import com.europartes.mobile.data.local.NetworkAvailability
 import com.europartes.mobile.data.remote.ApiClient
+import com.europartes.mobile.data.repository.OfflineModuleSnapshotStore
+import com.europartes.mobile.data.sync.OfflineDataPrefetcher
+import com.europartes.mobile.data.sync.canUseOfflineCopy
 import com.europartes.mobile.data.remote.EmployeeDto
 import com.europartes.mobile.data.remote.UserAccountDto
 import com.europartes.mobile.data.local.TokenStore
@@ -29,6 +34,8 @@ data class SecurityUiState(
     val editorLoading: Boolean = false,
     val editingUser: UserAccountDto? = null,
     val saveVersion: Int = 0,
+    val isOnline: Boolean = true,
+    val offlineNotice: String? = null,
 )
 
 data class OwnPasswordUiState(
@@ -45,11 +52,19 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
         ApiClient.catalogApi(TokenStore(application)),
     )
 
-    private val _state = MutableStateFlow(SecurityUiState())
+    private val tokenStore = TokenStore(application)
+    private val offlineStore = OfflineModuleSnapshotStore(DatabaseProvider.get(application).offlineModuleSnapshotDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+    private val _state = MutableStateFlow(SecurityUiState(isOnline = NetworkAvailability.hasValidatedInternet(application)))
     val state = _state.asStateFlow()
 
     private val _ownPasswordState = MutableStateFlow(OwnPasswordUiState())
     val ownPasswordState = _ownPasswordState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            NetworkAvailability.observe(application).collect { online -> _state.update { it.copy(isOnline = online) } }
+        }
+    }
 
     fun loadUsers(role: String, force: Boolean = false) {
         if (role != EuropartesRoles.SOPORTE_TI) {
@@ -61,26 +76,35 @@ class SecurityViewModel(application: Application) : AndroidViewModel(application
             _state.update { it.copy(isLoading = true, error = null, message = null) }
             securityRepository.users().fold(
                 onSuccess = { users ->
-                    _state.update { it.copy(users = users, hasLoaded = true, isLoading = false) }
-                    loadEmployees()
+                    offlineStore.save(role, OfflineDataPrefetcher.SECURITY_USERS, emptyMap(), users)
+                    _state.update { it.copy(users = users, hasLoaded = true, isLoading = false, offlineNotice = null) }
+                    loadEmployees(role)
                 },
                 onFailure = { error ->
-                    _state.update {
-                        it.copy(error = error.message ?: "No se pudieron cargar las cuentas.", hasLoaded = true, isLoading = false)
+                    val saved = if (error.canUseOfflineCopy()) runCatching { offlineStore.readList(role, OfflineDataPrefetcher.SECURITY_USERS, emptyMap(), UserAccountDto::class.java) }.getOrNull() else null
+                    if (saved != null) {
+                        val savedAt = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved.second))
+                        _state.update { it.copy(users = saved.first, hasLoaded = true, isLoading = false, error = null, offlineNotice = "Sin conexión · cuentas guardadas el $savedAt. Administrar cuentas requiere internet.") }
+                        loadEmployees(role)
+                    } else _state.update {
+                        it.copy(error = if (error.canUseOfflineCopy()) "Sin conexión; las cuentas aún no terminan de descargarse." else error.message ?: "No se pudieron cargar las cuentas.", hasLoaded = true, isLoading = false)
                     }
                 },
             )
         }
     }
 
-    private suspend fun loadEmployees() {
+    private suspend fun loadEmployees(role: String) {
         _state.update { it.copy(employeesLoading = true, employeeError = null) }
         securityRepository.employees().fold(
             onSuccess = { employees ->
+                offlineStore.save(role, OfflineDataPrefetcher.SECURITY_EMPLOYEES, emptyMap(), employees)
                 _state.update { it.copy(employees = employees, employeesLoading = false) }
             },
             onFailure = { error ->
-                _state.update {
+                val saved = if (error.canUseOfflineCopy()) runCatching { offlineStore.readList(role, OfflineDataPrefetcher.SECURITY_EMPLOYEES, emptyMap(), EmployeeDto::class.java) }.getOrNull() else null
+                if (saved != null) _state.update { it.copy(employees = saved.first, employeesLoading = false) }
+                else _state.update {
                     it.copy(
                         employeesLoading = false,
                         employeeError = error.message ?: "No se pudieron cargar empleados para asociar.",

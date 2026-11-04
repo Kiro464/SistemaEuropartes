@@ -10,6 +10,7 @@ import com.europartes.mobile.data.remote.PasswordPairRequest
 import com.europartes.mobile.data.remote.SecurityApi
 import com.europartes.mobile.data.remote.UserAccountDto
 import com.europartes.mobile.data.remote.OwnPasswordResponse
+import com.europartes.mobile.data.sync.HttpIOException
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
@@ -94,7 +95,7 @@ class SecurityRepository(context: Context, private val api: SecurityApi, private
     } catch (error: CancellationException) {
         throw error
     } catch (error: HttpException) {
-        Result.failure(IOException(httpMessage(error, redactSensitiveErrors), error))
+        Result.failure(HttpIOException(httpMessage(error, redactSensitiveErrors), error))
     } catch (error: InvalidRotatedSessionException) {
         Result.failure(IOException("El servidor no devolvió una sesión renovada válida. Inicia sesión nuevamente.", error))
     } catch (error: IOException) {

@@ -1,5 +1,7 @@
 package com.europartes.mobile.data.repository
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.util.Base64
 import com.europartes.mobile.data.local.LocalDataCipher
 import com.europartes.mobile.data.local.OfflineReportDao
@@ -27,7 +29,9 @@ class OfflineSnapshotStore(
 ) {
     private val encryptionMigrationMutex = LEGACY_MIGRATION_MUTEX
 
-    suspend fun save(role: String, resource: String, query: String, value: Any): Long? {
+    suspend fun save(role: String, resource: String, query: String, value: Any): Long? = withContext(Dispatchers.Default) { saveOnCaller(role, resource, query, value) }
+
+    private suspend fun saveOnCaller(role: String, resource: String, query: String, value: Any): Long? {
         val owner = ownerUserId()?.takeIf { it > 0 } ?: return null
         runCatching { encryptLegacySnapshots() }.getOrElse { return null }
         val fingerprint = fingerprint(role, resource, query)
@@ -57,7 +61,9 @@ class OfflineSnapshotStore(
         return now
     }
 
-    suspend fun <T> read(role: String, resource: String, query: String, type: Type): Pair<T, Long>? {
+    suspend fun <T> read(role: String, resource: String, query: String, type: Type): Pair<T, Long>? = withContext(Dispatchers.Default) { readOnCaller(role, resource, query, type) }
+
+    private suspend fun <T> readOnCaller(role: String, resource: String, query: String, type: Type): Pair<T, Long>? {
         val owner = ownerUserId()?.takeIf { it > 0 } ?: return null
         runCatching { encryptLegacySnapshots() }.getOrElse { return null }
         val fingerprint = fingerprint(role, resource, query)

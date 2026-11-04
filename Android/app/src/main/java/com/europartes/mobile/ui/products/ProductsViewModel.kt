@@ -19,6 +19,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
+import com.europartes.mobile.data.remote.ProductStateRequest
+import com.europartes.mobile.data.sync.OutboxRepository
+import com.europartes.mobile.data.sync.PendingAction
+import com.europartes.mobile.data.sync.PendingDisplay
+import com.europartes.mobile.data.sync.PendingModule
+import com.europartes.mobile.data.sync.SyncCoordinator
+import com.europartes.mobile.data.sync.applyPendingCatalog
+import com.europartes.mobile.data.sync.applyPendingProducts
+import com.europartes.mobile.data.sync.canUseOfflineCopy
+import com.europartes.mobile.data.sync.neverReachedServer
+import com.europartes.mobile.data.sync.pendingIds
+import com.europartes.mobile.data.repository.CatalogItem
+import com.europartes.mobile.data.repository.CatalogKind
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -32,12 +45,15 @@ import java.io.IOException
     val message: String? = null,
     val messageIsError: Boolean = false,
     val hasLoaded: Boolean = false,
-    val includeInactive: Boolean = false,
+    val includeInactive: Boolean = true,
     val isShowingOfflineCache: Boolean = false,
     val lastSuccessfulSyncAtEpochMs: Long? = null,
     val isOnline: Boolean = true,
     val canUseOfflineCache: Boolean = true,
+    val pendingProductIds: Set<Int> = emptySet(),
 )
+
+const val OFFLINE_SAVED_MESSAGE = "Guardado en este dispositivo; se enviará al servidor al recuperar la conexión."
 
 class ProductsViewModel(application: Application) : AndroidViewModel(application) {
     private val tokenStore = TokenStore(application)
@@ -47,8 +63,28 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
     private val localCatalogs = OfflineCatalogRepository(database.offlineCatalogDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
     private val _uiState = MutableStateFlow(ProductsUiState())
     val uiState: StateFlow<ProductsUiState> = _uiState.asStateFlow()
+    private val outbox = OutboxRepository(database.pendingOperationDao(), ownerUserId = { tokenStore.userIdForLocalPartition() })
+    private var catalogRole: String? = null
+    private var serverProducts: List<ProductDto> = emptyList()
+
+    /** Server rows plus the changes this device has not been able to send yet. */
+    private suspend fun showWithPending(rows: List<ProductDto>, includeInactive: Boolean): Pair<List<ProductDto>, Set<Int>> {
+        serverProducts = rows
+        val pending = runCatching { outbox.visibleFor(PendingModule.PRODUCT) }.getOrDefault(emptyList())
+        return applyPendingProducts(rows, pending, includeInactive) to pendingIds(PendingModule.PRODUCT, pending)
+    }
 
     init {
+        viewModelScope.launch {
+            SyncCoordinator.dataChanged.collect {
+                if (_uiState.value.message?.startsWith(com.europartes.mobile.data.sync.OFFLINE_SAVED_PREFIX) == true) clearMessage()
+                val current = _uiState.value
+                if (current.hasLoaded && !current.isLoading && !current.isWorking) {
+                    loadProducts(current.includeInactive)
+                    catalogRole?.let(::loadCatalogs)
+                }
+            }
+        }
         viewModelScope.launch {
             var wasOnline = NetworkAvailability.hasValidatedInternet(application)
             _uiState.value = _uiState.value.copy(isOnline = wasOnline)
@@ -60,8 +96,10 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                 if (!isOnline && current.hasLoaded && current.canUseOfflineCache && !current.isLoading) {
                     val snapshot = runCatching { localRepository.cachedRemoteSnapshot(current.includeInactive, tokenStore.userIdForLocalPartition()) }.getOrNull()
                     if (snapshot != null) {
+                        val (visible, pendingProductIds) = showWithPending(snapshot.first.mapNotNull { it.toProductDto() }, current.includeInactive)
                         _uiState.value = _uiState.value.copy(
-                            products = snapshot.first.mapNotNull { it.toProductDto() },
+                            products = visible,
+                            pendingProductIds = pendingProductIds,
                             isShowingOfflineCache = true,
                             lastSuccessfulSyncAtEpochMs = snapshot.second,
                             message = "Sin conexión: se muestra la última consulta guardada. Los datos pueden estar desactualizados.",
@@ -76,7 +114,7 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun loadProducts(includeInactive: Boolean = false) {
+    fun loadProducts(includeInactive: Boolean = true) {
         if (_uiState.value.isLoading || _uiState.value.isWorking) return
         val requestOwner = tokenStore.userIdForLocalPartition()
         viewModelScope.launch {
@@ -86,8 +124,9 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                     if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
                     runCatching { localRepository.cacheRemote(products, requestOwner, includeInactive) }
                     val timestamp = runCatching { localRepository.cachedRemoteSnapshot(includeInactive, requestOwner)?.second }.getOrNull()
+                    val (visible, pendingProductIds) = showWithPending(products, includeInactive)
                     _uiState.value = _uiState.value.copy(
-                        isLoading = false, products = products, errorMessage = null, hasLoaded = true,
+                        isLoading = false, products = visible, pendingProductIds = pendingProductIds, errorMessage = null, hasLoaded = true,
                         includeInactive = includeInactive, isShowingOfflineCache = false,
                         lastSuccessfulSyncAtEpochMs = timestamp ?: System.currentTimeMillis(),
                         isOnline = true,
@@ -107,8 +146,9 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                     } else null
                     val cached = snapshot?.first.orEmpty().mapNotNull { it.toProductDto() }
                     if (snapshot != null) {
+                        val (visible, pendingProductIds) = showWithPending(cached, includeInactive)
                         _uiState.value = _uiState.value.copy(
-                            isLoading = false, products = cached, errorMessage = null, hasLoaded = true,
+                            isLoading = false, products = visible, pendingProductIds = pendingProductIds, errorMessage = null, hasLoaded = true,
                             includeInactive = includeInactive, isShowingOfflineCache = true,
                             isOnline = false,
                             canUseOfflineCache = true,
@@ -120,7 +160,7 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             products = if (authorizationDenied) emptyList() else _uiState.value.products,
-                            errorMessage = if (isConnectivityFailure) "Sin conexión y todavía no hay una copia descargada de productos para esta cuenta." else error.message ?: "No se pudieron cargar los productos.",
+                            errorMessage = if (isConnectivityFailure) "Sin conexión; los productos aún no terminan de descargarse." else error.message ?: "No se pudieron cargar los productos.",
                             hasLoaded = true, includeInactive = includeInactive, isShowingOfflineCache = false,
                             isOnline = !isConnectivityFailure,
                             canUseOfflineCache = !authorizationDenied,
@@ -133,6 +173,7 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
 
     fun loadCatalogs(role: String) {
         if (_uiState.value.isWorking) return
+        catalogRole = role
         viewModelScope.launch {
             val brands = repository.getBrands()
             val suppliers = repository.getSuppliers()
@@ -152,15 +193,18 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                 if (brands.isFailure && cachedBrands != null) brandSnapshot?.second?.let { add("marcas ${formattedDate(it)}") }
                 if (suppliers.isFailure && cachedSuppliers != null) supplierSnapshot?.second?.let { add("proveedores ${formattedDate(it)}") }
             }
+            // Brands and suppliers created offline can already be chosen in a product form.
+            val pendingCatalogs = runCatching { outbox.visibleFor(PendingModule.BRAND, PendingModule.SUPPLIER) }.getOrDefault(emptyList())
+            fun List<CatalogOptionDto>.withPending(kind: CatalogKind) = applyPendingCatalog(kind, map { CatalogItem(it.id, it.nombre) }, pendingCatalogs).map { CatalogOptionDto(it.id, it.title) }
             _uiState.value = _uiState.value.copy(
-                brands = cachedBrands.orEmpty(), suppliers = cachedSuppliers.orEmpty(),
-                message = if (offline) "Sin conexión · opciones guardadas: ${staleDates.joinToString("; ").ifBlank { "fecha no disponible" }}. Django revalidará las referencias al guardar." else error?.message,
+                brands = cachedBrands.orEmpty().withPending(CatalogKind.BRANDS), suppliers = cachedSuppliers.orEmpty().withPending(CatalogKind.SUPPLIERS),
+                message = if (offline) null else error?.message,
                 messageIsError = error != null && !offline,
             )
         }
     }
 
-    private fun Throwable?.isTransportFailure(): Boolean = this != null && generateSequence(this) { it.cause }.any { it is IOException }
+    private fun Throwable?.isTransportFailure(): Boolean = this?.canUseOfflineCopy() == true
     private fun Throwable?.isAuthorizationFailure(): Boolean = this != null && generateSequence(this) { it.cause }
         .filterIsInstance<HttpException>().any { it.code() == 401 || it.code() == 403 }
 
@@ -183,35 +227,18 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
         }
         if (invalid != null) { _uiState.value = state.copy(message = invalid, messageIsError = true); return }
         val request = ProductWriteRequest(name, desc, marca!!, proveedor!!, parsed!!.setScale(2).toPlainString(), true)
-        if (!NetworkAvailability.hasValidatedInternet(getApplication<Application>())) {
-            if (productId != null) {
-                _uiState.value = state.copy(message = "Editar un producto existente requiere conexión para validar el stock y los cambios del servidor.", messageIsError = true)
-                return
-            }
-            _uiState.value = _uiState.value.copy(isWorking = true, message = null, messageIsError = false)
-            viewModelScope.launch {
-                localAccountRepository().queueProductCreate(
-                    request,
-                    state.brands.firstOrNull { it.id == marca }?.nombre,
-                    state.suppliers.firstOrNull { it.id == proveedor }?.nombre,
-                ).fold(
-                    onSuccess = {
-                        _uiState.value = _uiState.value.copy(
-                            isWorking = false,
-                            message = "Producto guardado localmente como pendiente de envío. Aún no existe en el servidor.",
-                            messageIsError = false,
-                        )
-                    },
-                    onFailure = { error ->
-                        _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar la operación local.", messageIsError = true)
-                    },
-                )
-            }
-            return
-        }
+        val action = if (productId == null) PendingAction.CREATE else PendingAction.UPDATE
+        val display = PendingDisplay(
+            "${if (productId == null) "Nuevo producto" else "Editar producto"}: $name",
+            listOfNotNull(
+                state.brands.firstOrNull { it.id == marca }?.let { "marca" to it.nombre },
+                state.suppliers.firstOrNull { it.id == proveedor }?.let { "proveedor" to it.nombre },
+            ).toMap(),
+        )
         _uiState.value = _uiState.value.copy(isWorking = true, message = null, messageIsError = false)
         val requestOwner = tokenStore.userIdForLocalPartition()
         viewModelScope.launch {
+            if (mustQueueProductChange(productId)) { queueProductChange(action, productId, request, display); return@launch }
             val result = if (productId == null) repository.create(request) else repository.update(productId, request)
             result.fold(
                 onSuccess = { saved ->
@@ -223,6 +250,7 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                 },
                 onFailure = { error ->
                     if (tokenStore.userIdForLocalPartition() != requestOwner) return@fold
+                    if (error.neverReachedServer()) { queueProductChange(action, productId, request, display); return@fold }
                     val httpStatus = (error.cause as? HttpException)?.code()
                     val outcomeMayBeUnknown = httpStatus == null || httpStatus >= 500
                     val uncertaintyMessage = "No se recibió confirmación. Comprueba el catálogo del servidor antes de volver a enviar la operación."
@@ -253,8 +281,12 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
     fun changeActive(product: ProductDto, active: Boolean) {
         if (_uiState.value.isWorking) return
         val requestOwner = tokenStore.userIdForLocalPartition()
+        val stateAction = if (active) PendingAction.SET_ACTIVE else PendingAction.DELETE
+        val statePayload = if (active) ProductStateRequest(true) else null
+        val stateDisplay = PendingDisplay("${if (active) "Reactivar" else "Desactivar"} producto: ${product.nombre}")
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isWorking = true, message = null)
+            if (mustQueueProductChange(product.id)) { queueProductChange(stateAction, product.id, statePayload, stateDisplay); return@launch }
             val result = if (active) repository.setActive(product.id, true).map { Unit } else repository.deactivate(product.id)
             result.fold(
                 onSuccess = {
@@ -275,8 +307,28 @@ class ProductsViewModel(application: Application) : AndroidViewModel(application
                         messageIsError = false,
                     )
                 },
-                onFailure = { error -> if (tokenStore.userIdForLocalPartition() == requestOwner) _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo cambiar el estado.", messageIsError = true) },
+                onFailure = { error ->
+                    if (error.neverReachedServer()) { queueProductChange(stateAction, product.id, statePayload, stateDisplay); return@fold }
+                    if (tokenStore.userIdForLocalPartition() == requestOwner) _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo cambiar el estado.", messageIsError = true)
+                },
             )
+        }
+    }
+
+    private suspend fun mustQueueProductChange(id: Int?): Boolean =
+        id?.let { it < 0 } == true || !NetworkAvailability.hasValidatedInternet(getApplication<Application>()) || outbox.hasUnsent()
+
+    private suspend fun queueProductChange(action: String, id: Int?, payload: Any?, display: PendingDisplay) {
+        val role = tokenStore.roleForLocalPartition().orEmpty()
+        try {
+            outbox.enqueue(role, PendingModule.PRODUCT, action, id ?: outbox.newTemporaryId(), payload, display)
+            SyncCoordinator.request(getApplication<Application>())
+            val (visible, pendingProductIds) = showWithPending(serverProducts, _uiState.value.includeInactive)
+            _uiState.value = _uiState.value.copy(isWorking = false, products = visible, pendingProductIds = pendingProductIds, message = OFFLINE_SAVED_MESSAGE, messageIsError = false)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _uiState.value = _uiState.value.copy(isWorking = false, message = error.message ?: "No se pudo guardar el cambio.", messageIsError = true)
         }
     }
 

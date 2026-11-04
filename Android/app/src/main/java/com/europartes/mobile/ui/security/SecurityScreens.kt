@@ -2,37 +2,22 @@ package com.europartes.mobile.ui.security
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ManageAccounts
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,10 +30,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.europartes.mobile.data.remote.UserAccountDto
 import com.europartes.mobile.data.remote.EmployeeDto
+import com.europartes.mobile.data.remote.UserAccountDto
 import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.data.repository.UserAccountWrite
+import com.europartes.mobile.ui.components.ButtonVariant
+import com.europartes.mobile.ui.components.ConfirmDialog
+import com.europartes.mobile.ui.components.EmptyState
+import com.europartes.mobile.ui.components.EuropartesButton
+import com.europartes.mobile.ui.components.EuropartesCard
+import com.europartes.mobile.ui.components.EuropartesDialog
+import com.europartes.mobile.ui.components.EuropartesSearchField
+import com.europartes.mobile.ui.components.EuropartesSelect
+import com.europartes.mobile.ui.components.EuropartesStatusMessage
+import com.europartes.mobile.ui.components.EuropartesTextField
+import com.europartes.mobile.ui.components.LoadingState
+import com.europartes.mobile.ui.components.MetaGrid
+import com.europartes.mobile.ui.components.PageHeader
+import com.europartes.mobile.ui.components.PagePadding
+import com.europartes.mobile.ui.components.RecordActions
+import com.europartes.mobile.ui.components.RecordHeader
+import com.europartes.mobile.ui.components.SectionGap
+import com.europartes.mobile.ui.components.SelectOption
+import com.europartes.mobile.ui.components.StatusPill
+import com.europartes.mobile.ui.components.StatusTone
+import com.europartes.mobile.ui.theme.EuropartesTheme
 
 private val functionalRoles = listOf(
     EuropartesRoles.ADMIN_GENERAL,
@@ -84,83 +90,66 @@ fun SecurityAdminScreen(
     val filteredUsers = remember(state.users, query) {
         val term = query.trim().lowercase()
         if (term.isEmpty()) state.users else state.users.filter { user ->
-            listOf(user.username, user.firstName, user.lastName, user.email, user.role.orEmpty())
-                .any { it.lowercase().contains(term) }
+            listOf(user.username, user.firstName, user.lastName, user.email, user.role.orEmpty()).any { it.lowercase().contains(term) }
         }
     }
 
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Cuentas y roles", style = MaterialTheme.typography.headlineSmall)
-                Text("Administración reservada a Soporte TI", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = { viewModel.loadUsers(role, force = true) }, enabled = !state.isLoading) {
-                Icon(Icons.Default.Refresh, contentDescription = "Actualizar cuentas")
-            }
-            IconButton(onClick = {
-                viewModel.clearMessage()
-                viewModel.openCreate()
-                editingId = null
-                versionWhenDialogOpened = state.saveVersion
-                showForm = true
-            }, enabled = role == EuropartesRoles.SOPORTE_TI && !state.isWorking) {
-                Icon(Icons.Default.Add, contentDescription = "Crear cuenta")
+    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+        item {
+            PageHeader(
+                title = "Usuarios y roles",
+                description = "Administra las cuentas, el rol funcional y su asociación laboral.",
+                actions = {
+                    EuropartesButton("Nueva cuenta", {
+                        viewModel.clearMessage()
+                        viewModel.openCreate()
+                        editingId = null
+                        versionWhenDialogOpened = state.saveVersion
+                        showForm = true
+                    }, enabled = role == EuropartesRoles.SOPORTE_TI && !state.isWorking && state.isOnline, icon = Icons.Outlined.Add)
+                    EuropartesButton(if (state.isLoading) "Actualizando…" else "Actualizar", { viewModel.loadUsers(role, force = true) }, variant = ButtonVariant.Secondary, enabled = !state.isLoading, icon = Icons.Outlined.Refresh)
+                },
+            )
+        }
+        item {
+            EuropartesCard {
+                EuropartesSearchField(query, { query = it }, "Buscar usuario, nombre, correo o rol")
+                Text("${filteredUsers.size} cuenta(s)", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
             }
         }
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Buscar usuario, nombre, correo o rol") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            singleLine = true,
-        )
-
-        state.error?.let { SecurityMessage(it, isError = true) }
-        state.message?.let { SecurityMessage(it, isError = state.messageIsError) }
-
+        state.offlineNotice?.let { item { EuropartesStatusMessage(it, isError = false) } }
+        state.error?.let { item { EuropartesStatusMessage(it, isError = true) } }
+        state.message?.let { item { EuropartesStatusMessage(it, isError = state.messageIsError, onDismiss = viewModel::clearMessage) } }
         when {
-            role != EuropartesRoles.SOPORTE_TI -> SecurityMessage("Solo Soporte TI puede consultar cuentas.", true)
-            state.isLoading && !state.hasLoaded -> Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(8.dp))
-                Text("Cargando cuentas…")
+            role != EuropartesRoles.SOPORTE_TI -> item { EuropartesStatusMessage("Solo Soporte TI puede consultar cuentas.", true) }
+            state.isLoading && !state.hasLoaded -> item { LoadingState("Cargando cuentas…") }
+            state.error != null && state.users.isEmpty() -> item {
+                EuropartesButton("Reintentar", { viewModel.loadUsers(role, force = true) }, variant = ButtonVariant.Secondary)
             }
-            state.error != null && state.users.isEmpty() -> OutlinedButton(onClick = { viewModel.loadUsers(role, force = true) }) {
-                Text("Reintentar")
+            filteredUsers.isEmpty() -> item {
+                EmptyState("Sin cuentas", if (state.users.isEmpty()) "No hay cuentas disponibles." else "Ninguna cuenta coincide con la búsqueda.", icon = Icons.Outlined.ManageAccounts)
             }
-            filteredUsers.isEmpty() -> Card(Modifier.fillMaxWidth()) {
-                Text(
-                    if (state.users.isEmpty()) "No hay cuentas disponibles." else "No hay cuentas que coincidan con la búsqueda.",
-                    Modifier.padding(20.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            else -> items(filteredUsers, key = { it.id }) { user ->
+                AccountCard(
+                    user = user,
+                    employee = state.employees.firstOrNull { it.id == user.employeeId },
+                    employeesLoading = state.employeesLoading,
+                    employeeError = state.employeeError,
+                    isCurrentUser = user.id == currentUserId,
+                    isWorking = state.isWorking || !state.isOnline,
+                    onEdit = {
+                        editingId = user.id
+                        versionWhenDialogOpened = state.saveVersion
+                        showForm = true
+                        viewModel.openEdit(role, user.id)
+                    },
+                    onResetPassword = {
+                        viewModel.clearMessage()
+                        versionWhenDialogOpened = state.saveVersion
+                        resetTarget = user
+                    },
+                    onToggleActive = { active -> statusTarget = user to active },
                 )
-            }
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(filteredUsers, key = { it.id }) { user ->
-                    AccountCard(
-                        user = user,
-                        employee = state.employees.firstOrNull { it.id == user.employeeId },
-                        employeesLoading = state.employeesLoading,
-                        employeeError = state.employeeError,
-                        isCurrentUser = user.id == currentUserId,
-                        isWorking = state.isWorking,
-                        onEdit = {
-                            editingId = user.id
-                            versionWhenDialogOpened = state.saveVersion
-                            showForm = true
-                            viewModel.openEdit(role, user.id)
-                        },
-                        onResetPassword = {
-                            viewModel.clearMessage()
-                            versionWhenDialogOpened = state.saveVersion
-                            resetTarget = user
-                        },
-                        onToggleActive = { active -> statusTarget = user to active },
-                    )
-                }
             }
         }
     }
@@ -168,11 +157,7 @@ fun SecurityAdminScreen(
     if (showForm) {
         val account = if (editingId == null) null else state.editingUser?.takeIf { it.id == editingId }
         if (editingId != null && state.editorLoading) {
-            AlertDialog(
-                onDismissRequest = { showForm = false },
-                confirmButton = {},
-                text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(); Spacer(Modifier.width(12.dp)); Text("Cargando cuenta…") } },
-            )
+            EuropartesDialog(title = "Editar cuenta", onDismiss = { showForm = false }) { LoadingState("Cargando cuenta…") }
         } else if (editingId == null || account != null) {
             UserAccountDialog(
                 initial = account,
@@ -199,17 +184,14 @@ fun SecurityAdminScreen(
     }
 
     statusTarget?.let { (user, active) ->
-        AlertDialog(
-            onDismissRequest = { if (!state.isWorking) statusTarget = null },
-            title = { Text(if (active) "Activar cuenta" else "Desactivar cuenta") },
-            text = { Text("${if (active) "Se habilitará" else "Se bloqueará"} el acceso de ${user.username}. El servidor validará las restricciones de seguridad.") },
-            confirmButton = {
-                Button(enabled = !state.isWorking, onClick = {
-                    viewModel.setUserActive(role, user, active)
-                    statusTarget = null
-                }) { Text(if (active) "Activar" else "Desactivar") }
-            },
-            dismissButton = { TextButton(enabled = !state.isWorking, onClick = { statusTarget = null }) { Text("Cancelar") } },
+        ConfirmDialog(
+            title = if (active) "Activar cuenta" else "Desactivar cuenta",
+            message = "${if (active) "Se habilitará" else "Se bloqueará"} el acceso de ${user.username}. El servidor validará las restricciones de seguridad.",
+            confirmText = if (active) "Activar" else "Desactivar",
+            danger = !active,
+            busy = state.isWorking,
+            onConfirm = { viewModel.setUserActive(role, user, active); statusTarget = null },
+            onDismiss = { statusTarget = null },
         )
     }
 }
@@ -226,32 +208,33 @@ private fun AccountCard(
     onResetPassword: () -> Unit,
     onToggleActive: (Boolean) -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(user.username, style = MaterialTheme.typography.titleLarge)
-            Text("${user.firstName} ${user.lastName}".trim().ifBlank { "Sin nombre registrado" }, style = MaterialTheme.typography.bodyLarge)
-            Text(user.email.ifBlank { "Sin correo" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(user.role ?: "Rol funcional inválido", color = if (user.roleValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            val employeeSummary = when {
-                user.employeeId == null -> "Empleado: sin asociación"
-                employeesLoading -> "Empleado #${user.employeeId}: cargando información…"
-                employeeError != null -> "Empleado #${user.employeeId}: no se pudo cargar la información del empleado"
-                employee != null -> "Empleado: ${employee.names} ${employee.surnames}".trim() + if (employee.active == false) " · Inactivo" else ""
-                else -> "Empleado #${user.employeeId}: no encontrado en el catálogo"
-            }
-            Text(employeeSummary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(if (user.isActive) "Estado: Activa" else "Estado: Inactiva", color = if (user.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(enabled = !isWorking, onClick = onEdit) { Text("Editar") }
-                OutlinedButton(enabled = !isWorking, onClick = onResetPassword) { Text("Restablecer contraseña") }
-                if (!isCurrentUser) {
-                    TextButton(enabled = !isWorking, onClick = { onToggleActive(!user.isActive) }) {
-                        Text(if (user.isActive) "Desactivar" else "Activar")
-                    }
-                }
-            }
-            if (isCurrentUser) Text("Tu cuenta no puede cambiar su propio rol ni desactivarse aquí.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val employeeSummary = when {
+        user.employeeId == null -> "Sin asociación"
+        employeesLoading -> "Empleado #${user.employeeId}: cargando…"
+        employeeError != null -> "Empleado #${user.employeeId}"
+        employee != null -> "${employee.names} ${employee.surnames}".trim() + if (employee.active == false) " · Inactivo" else ""
+        else -> "Empleado #${user.employeeId}: no encontrado"
+    }
+    EuropartesCard {
+        RecordHeader(user.username, "${user.firstName} ${user.lastName}".trim().ifBlank { "Sin nombre registrado" }) {
+            StatusPill(if (user.isActive) "Activa" else "Inactiva", if (user.isActive) StatusTone.Success else StatusTone.Neutral)
         }
+        MetaGrid(
+            listOf(
+                "Rol funcional" to (user.role ?: "Rol funcional inválido"),
+                "Correo" to user.email.ifBlank { "Sin correo" },
+                "Empleado" to employeeSummary,
+            ),
+            columns = 1,
+        )
+        RecordActions {
+            EuropartesButton("Editar", onEdit, variant = ButtonVariant.Secondary, small = true, enabled = !isWorking)
+            EuropartesButton("Restablecer contraseña", onResetPassword, variant = ButtonVariant.Secondary, small = true, enabled = !isWorking)
+            if (!isCurrentUser) {
+                EuropartesButton(if (user.isActive) "Desactivar" else "Activar", { onToggleActive(!user.isActive) }, variant = if (user.isActive) ButtonVariant.Danger else ButtonVariant.Primary, small = true, enabled = !isWorking)
+            }
+        }
+        if (isCurrentUser) Text("Tu cuenta no puede cambiar su propio rol ni desactivarse aquí.", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
     }
 }
 
@@ -276,98 +259,83 @@ private fun UserAccountDialog(
     var active by remember(initial?.id) { mutableStateOf(initial?.isActive ?: true) }
     var password by remember(initial?.id) { mutableStateOf("") }
     var confirmation by remember(initial?.id) { mutableStateOf("") }
-    var roleMenu by remember { mutableStateOf(false) }
-    var employeeMenu by remember { mutableStateOf(false) }
     var localError by remember(initial?.id) { mutableStateOf<String?>(null) }
     val isCreate = initial == null
     val isSelf = initial?.id == currentUserId
-
-    AlertDialog(
-        onDismissRequest = { if (!isWorking) onDismiss() },
-        title = { Text(if (isCreate) "Crear cuenta" else "Editar cuenta") },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(username, { username = it; localError = null }, label = { Text("Nombre de usuario") }, singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(email, { email = it; localError = null }, label = { Text("Correo electrónico") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(firstName, { firstName = it }, label = { Text("Nombres") }, singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(lastName, { lastName = it }, label = { Text("Apellidos") }, singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                Text("Rol funcional", style = MaterialTheme.typography.labelLarge)
-                OutlinedButton(enabled = !isWorking && !isSelf, onClick = { roleMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(role ?: "Seleccionar rol") }
-                DropdownMenu(expanded = roleMenu, onDismissRequest = { roleMenu = false }) {
-                    functionalRoles.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { role = option; roleMenu = false }) }
-                }
-                if (isSelf) Text("No puedes cambiar tu propio rol.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (initial != null && role == null) {
-                    Text(
-                        "El rol actual no se reconoce. Selecciona explícitamente un rol funcional válido antes de guardar.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Text("Empleado vinculado (opcional)", style = MaterialTheme.typography.labelLarge)
-                if (employeesLoading) Text("Cargando empleados…", style = MaterialTheme.typography.bodySmall)
-                employeeError?.let { SecurityMessage(it, isError = true) }
-                val selectedEmployee = employees.firstOrNull { it.id == employeeId }
-                val employeeAssociationUnavailable = employeeId != null && (employeesLoading || employeeError != null)
-                val employeeSelectionLabel = when {
-                    employeeId == null -> "Sin empleado asociado"
-                    employeesLoading -> "Cargando empleado #$employeeId…"
-                    employeeError != null -> "No se pudo cargar empleado #$employeeId"
-                    selectedEmployee != null -> "${selectedEmployee.names} ${selectedEmployee.surnames}".trim() + if (selectedEmployee.active == false) " · Inactivo" else ""
-                    else -> "Empleado #$employeeId no encontrado en el catálogo"
-                }
-                OutlinedButton(enabled = !isWorking && !employeeAssociationUnavailable, onClick = { employeeMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(employeeSelectionLabel)
-                }
-                DropdownMenu(expanded = employeeMenu, onDismissRequest = { employeeMenu = false }) {
-                    DropdownMenuItem(text = { Text("Sin empleado asociado") }, onClick = { employeeId = null; employeeMenu = false })
-                    employees.filter { it.userId == null || it.id == initial?.employeeId }.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text("${option.names} ${option.surnames}${if (!option.active) " · Inactivo" else ""}") },
-                            onClick = { employeeId = option.id; employeeMenu = false },
-                        )
-                    }
-                }
-                if (isCreate) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = active, onCheckedChange = { active = it }, enabled = !isWorking)
-                        Text("Cuenta activa al crear")
-                    }
-                }
-                if (isCreate) {
-                    OutlinedTextField(password, { password = it; localError = null }, label = { Text("Contraseña inicial") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(confirmation, { confirmation = it; localError = null }, label = { Text("Confirmar contraseña") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !isWorking, modifier = Modifier.fillMaxWidth())
-                    Text("El servidor aplicará la política de contraseña vigente.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                (localError ?: error)?.let { SecurityMessage(it, isError = true) }
+    val submit = {
+        val selectedRole = role
+        when {
+            username.isBlank() -> localError = "Ingresa el nombre de usuario."
+            selectedRole == null || selectedRole !in functionalRoles -> localError = "Selecciona un rol funcional válido."
+            isCreate && password.isBlank() -> localError = "La contraseña inicial es obligatoria."
+            isCreate && password != confirmation -> localError = "Las contraseñas no coinciden."
+            else -> onSubmit(
+                UserAccountWrite(
+                    username = username,
+                    email = email,
+                    firstName = firstName,
+                    lastName = lastName,
+                    role = selectedRole,
+                    employeeId = employeeId,
+                    active = active,
+                    password = password.takeIf { isCreate },
+                    passwordConfirmation = confirmation.takeIf { isCreate },
+                ),
+            )
+        }
+    }
+    EuropartesDialog(
+        title = if (isCreate) "Nueva cuenta" else "Editar cuenta",
+        onDismiss = onDismiss,
+        dismissEnabled = !isWorking,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = !isWorking)
+            EuropartesButton("Guardar", submit, isLoading = isWorking)
+        },
+    ) {
+        EuropartesTextField(username, { username = it; localError = null }, "Usuario", enabled = !isWorking, required = true)
+        EuropartesTextField(email, { email = it; localError = null }, "Correo electrónico", enabled = !isWorking, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+        EuropartesTextField(firstName, { firstName = it }, "Nombres", enabled = !isWorking)
+        EuropartesTextField(lastName, { lastName = it }, "Apellidos", enabled = !isWorking)
+        EuropartesSelect(
+            "Rol funcional", functionalRoles.map { SelectOption(it, it) }, role, { role = it },
+            enabled = !isWorking && !isSelf, required = true, placeholder = "Seleccionar rol",
+            supportingText = when {
+                isSelf -> "No puedes cambiar tu propio rol."
+                initial != null && role == null -> "El rol actual no se reconoce. Selecciona uno válido antes de guardar."
+                else -> null
+            },
+        )
+        val selectedEmployee = employees.firstOrNull { it.id == employeeId }
+        val employeeLabel = when {
+            employeeId == null -> "Sin empleado asociado"
+            employeesLoading -> "Cargando empleado #$employeeId…"
+            employeeError != null -> "No se pudo cargar empleado #$employeeId"
+            selectedEmployee != null -> "${selectedEmployee.names} ${selectedEmployee.surnames}".trim() + if (selectedEmployee.active == false) " · Inactivo" else ""
+            else -> "Empleado #$employeeId no encontrado"
+        }
+        EuropartesSelect<Int?>(
+            label = "Empleado asociado",
+            options = listOf(SelectOption<Int?>(null, "Sin empleado asociado")) + employees.filter { it.userId == null || it.id == initial?.employeeId }.map { option ->
+                SelectOption<Int?>(option.id, "${option.names} ${option.surnames}${if (!option.active) " · Inactivo" else ""}")
+            },
+            selected = employeeId,
+            onSelect = { employeeId = it },
+            enabled = !isWorking && !(employeeId != null && (employeesLoading || employeeError != null)),
+            selectedLabel = employeeLabel,
+            supportingText = "Opcional. Cada empleado solo puede tener una cuenta.",
+        )
+        employeeError?.let { EuropartesStatusMessage(it, isError = true) }
+        if (isCreate) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = active, onCheckedChange = { active = it }, enabled = !isWorking)
+                Text("Cuenta activa", style = MaterialTheme.typography.bodyMedium)
             }
-        },
-        confirmButton = {
-            Button(enabled = !isWorking, onClick = {
-                val selectedRole = role
-                when {
-                    username.isBlank() -> localError = "Ingresa el nombre de usuario."
-                    selectedRole == null || selectedRole.orEmpty() !in functionalRoles -> localError = "Selecciona un rol funcional válido."
-                    isCreate && password.isBlank() -> localError = "La contraseña inicial es obligatoria."
-                    isCreate && password != confirmation -> localError = "Las contraseñas no coinciden."
-                    else -> onSubmit(
-                        UserAccountWrite(
-                            username = username,
-                            email = email,
-                            firstName = firstName,
-                            lastName = lastName,
-                            role = selectedRole.orEmpty(),
-                            employeeId = employeeId,
-                            active = active,
-                            password = password.takeIf { isCreate },
-                            passwordConfirmation = confirmation.takeIf { isCreate },
-                        ),
-                    )
-                }
-            }) { if (isWorking) CircularProgressIndicator() else Text("Guardar") }
-        },
-        dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } },
-    )
+            EuropartesTextField(password, { password = it; localError = null }, "Contraseña inicial", enabled = !isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+            EuropartesTextField(confirmation, { confirmation = it; localError = null }, "Confirmar contraseña", enabled = !isWorking, required = true, visualTransformation = PasswordVisualTransformation(), supportingText = "El servidor aplica la política de contraseñas vigente.")
+        }
+        (localError ?: error)?.let { EuropartesStatusMessage(it, isError = true) }
+    }
 }
 
 @Composable
@@ -381,28 +349,26 @@ private fun ResetPasswordDialog(
     var password by remember(username) { mutableStateOf("") }
     var confirmation by remember(username) { mutableStateOf("") }
     var localError by remember(username) { mutableStateOf<String?>(null) }
-    AlertDialog(
-        onDismissRequest = { if (!isWorking) onDismiss() },
-        title = { Text("Restablecer contraseña") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Nueva contraseña para $username")
-                OutlinedTextField(password, { password = it; localError = null }, label = { Text("Nueva contraseña") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !isWorking)
-                OutlinedTextField(confirmation, { confirmation = it; localError = null }, label = { Text("Confirmar contraseña") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !isWorking)
-                (localError ?: error)?.let { SecurityMessage(it, isError = true) }
-            }
-        },
-        confirmButton = {
-            Button(enabled = !isWorking, onClick = {
+    EuropartesDialog(
+        title = "Restablecer contraseña",
+        subtitle = "Cuenta: $username",
+        onDismiss = onDismiss,
+        dismissEnabled = !isWorking,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = !isWorking)
+            EuropartesButton("Restablecer", {
                 when {
                     password.isBlank() -> localError = "Ingresa la nueva contraseña."
                     password != confirmation -> localError = "Las contraseñas no coinciden."
                     else -> onSubmit(password, confirmation)
                 }
-            }) { if (isWorking) CircularProgressIndicator() else Text("Restablecer") }
+            }, isLoading = isWorking)
         },
-        dismissButton = { TextButton(enabled = !isWorking, onClick = onDismiss) { Text("Cancelar") } },
-    )
+    ) {
+        EuropartesTextField(password, { password = it; localError = null }, "Nueva contraseña", enabled = !isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+        EuropartesTextField(confirmation, { confirmation = it; localError = null }, "Confirmar contraseña", enabled = !isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+        (localError ?: error)?.let { EuropartesStatusMessage(it, isError = true) }
+    }
 }
 
 @Composable
@@ -410,6 +376,7 @@ fun ChangeOwnPasswordScreen(
     role: String,
     viewModel: SecurityViewModel,
     modifier: Modifier = Modifier,
+    isOnline: Boolean = true,
 ) {
     val state by viewModel.ownPasswordState.collectAsState()
     var current by remember { mutableStateOf("") }
@@ -425,33 +392,23 @@ fun ChangeOwnPasswordScreen(
         }
     }
 
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Seguridad de la cuenta", style = MaterialTheme.typography.headlineSmall)
-        Text("Actualiza tu contraseña. Se comprobará la contraseña vigente y el servidor renovará esta sesión.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(current, { current = it; localError = null }, label = { Text("Contraseña actual") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !state.isWorking, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(next, { next = it; localError = null }, label = { Text("Nueva contraseña") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !state.isWorking, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(confirmation, { confirmation = it; localError = null }, label = { Text("Confirmar nueva contraseña") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !state.isWorking, modifier = Modifier.fillMaxWidth())
-        (localError ?: state.error)?.let { SecurityMessage(it, isError = true) }
-        state.message?.let { SecurityMessage(it, isError = false) }
-        Button(enabled = !state.isWorking, onClick = {
-            when {
-                current.isBlank() || next.isBlank() || confirmation.isBlank() -> localError = "Completa los tres campos de contraseña."
-                next != confirmation -> localError = "Las contraseñas nuevas no coinciden."
-                next == current -> localError = "La nueva contraseña debe ser diferente a la actual."
-                else -> viewModel.changeOwnPassword(current, next, confirmation)
-            }
-        }) {
-            if (state.isWorking) CircularProgressIndicator() else Text("Actualizar contraseña")
+    Column(modifier.verticalScroll(rememberScrollState()).padding(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+        PageHeader(eyebrow = "Mi cuenta", title = "Cambiar contraseña", description = "Se comprobará tu contraseña vigente y el servidor renovará esta sesión de $role.")
+        EuropartesCard(verticalSpacing = Arrangement.spacedBy(12.dp)) {
+            EuropartesTextField(current, { current = it; localError = null }, "Contraseña actual", enabled = !state.isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+            EuropartesTextField(next, { next = it; localError = null }, "Nueva contraseña", enabled = !state.isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+            EuropartesTextField(confirmation, { confirmation = it; localError = null }, "Confirmar nueva contraseña", enabled = !state.isWorking, required = true, visualTransformation = PasswordVisualTransformation())
+            (localError ?: state.error)?.let { EuropartesStatusMessage(it, isError = true) }
+            state.message?.let { EuropartesStatusMessage(it, isError = false) }
+            if (!isOnline) EuropartesStatusMessage("Cambiar la contraseña requiere conexión con el servidor.", isError = true)
+            EuropartesButton("Actualizar contraseña", {
+                when {
+                    current.isBlank() || next.isBlank() || confirmation.isBlank() -> localError = "Completa los tres campos de contraseña."
+                    next != confirmation -> localError = "Las contraseñas nuevas no coinciden."
+                    next == current -> localError = "La nueva contraseña debe ser diferente a la actual."
+                    else -> viewModel.changeOwnPassword(current, next, confirmation)
+                }
+            }, Modifier.fillMaxWidth(), enabled = isOnline, isLoading = state.isWorking)
         }
-        Text("Sesión de ${role}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-
-@Composable
-private fun SecurityMessage(message: String, isError: Boolean) {
-    Text(
-        message,
-        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.bodyMedium,
-    )
 }

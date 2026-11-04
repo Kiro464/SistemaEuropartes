@@ -1,21 +1,37 @@
 package com.europartes.mobile.ui.navigation
 
-import com.europartes.mobile.data.repository.EuropartesRoles
 import com.europartes.mobile.data.repository.CatalogKind
+import com.europartes.mobile.data.repository.EuropartesRoles
 
-enum class MobileDestination(val label: String, val description: String) {
-    PRODUCTS("Productos del servidor", "Consulta de productos autorizados por Django"),
-    KARDEX("Movimientos y Kardex", "Consulta y exportación de movimientos autorizados por Django"),
-    LOCAL_DRAFTS("Borradores locales", "CRUD local persistido en Room"),
-    CATALOGS("Catálogos", "Consulta y mantenimiento de catálogos autorizados"),
-    PURCHASING("Solicitudes y compras", "Seguimiento de abastecimiento y recepción"),
-    CUSTOMERS("Clientes", "Consulta y mantenimiento de clientes autorizados"),
-    SALES("Punto de venta", "Facturación autorizada para Vendedor"),
-    SALES_HISTORY("Historial de facturas", "Consulta de ventas según el rol"),
-    DISPATCHES("Despachos", "Órdenes pendientes para Oficial de Logística"),
-    USER_ADMIN("Cuentas y roles", "Administración de cuentas por Soporte TI"),
-    ACCOUNT_SECURITY("Seguridad de cuenta", "Cambio de contraseña propia"),
-    DASHBOARD("Dashboard analítico", "Indicadores e informes autorizados de DWAutoPartes"),
+/** Section names and order are the ones in the web sidebar. */
+enum class NavigationSection(val label: String) {
+    PRINCIPAL("Principal"),
+    OPERATIONS("Operaciones"),
+    CATALOGS("Catálogos"),
+    REPORTS("Reportes"),
+    SYSTEM("Sistema"),
+}
+
+enum class MobileDestination(val label: String, val section: NavigationSection) {
+    DASHBOARD("Dashboard", NavigationSection.PRINCIPAL),
+    SALES("Ventas", NavigationSection.OPERATIONS),
+    PRODUCTS("Productos e inventario", NavigationSection.OPERATIONS),
+    DISPATCHES("Despachos de venta", NavigationSection.OPERATIONS),
+    PURCHASING("Solicitudes y compras", NavigationSection.OPERATIONS),
+    LOCAL_DRAFTS("Borradores locales", NavigationSection.OPERATIONS),
+    CUSTOMERS("Clientes", NavigationSection.CATALOGS),
+    BRANDS("Marcas", NavigationSection.CATALOGS),
+    SUPPLIERS("Proveedores", NavigationSection.CATALOGS),
+    COUNTRIES("Países", NavigationSection.CATALOGS),
+    DEPARTMENTS("Departamentos", NavigationSection.CATALOGS),
+    EMPLOYEES("Empleados", NavigationSection.CATALOGS),
+    SALES_HISTORY("Historial de ventas", NavigationSection.REPORTS),
+    PURCHASE_HISTORY("Historial de compras", NavigationSection.REPORTS),
+    KARDEX("Kardex de inventario", NavigationSection.REPORTS),
+    CONFIGURATION("Configuración", NavigationSection.SYSTEM),
+    SYNC("Sincronización", NavigationSection.SYSTEM),
+    USER_ADMIN("Usuarios y roles", NavigationSection.SYSTEM),
+    ACCOUNT_SECURITY("Cambiar contraseña", NavigationSection.SYSTEM),
 }
 
 data class NavigationItem(
@@ -24,50 +40,70 @@ data class NavigationItem(
     val enabled: Boolean = true,
 )
 
+val PURCHASE_HISTORY_ROLES = setOf(
+    EuropartesRoles.ADMIN_GENERAL,
+    EuropartesRoles.ASESOR_FINANCIERO,
+    EuropartesRoles.COORDINADOR_LOGISTICA,
+    EuropartesRoles.OFICIAL_LOGISTICA,
+)
+
+/** The catalog each destination shows; null when the destination is not a catalog. */
+val MobileDestination.catalogKind: CatalogKind?
+    get() = when (this) {
+        MobileDestination.BRANDS -> CatalogKind.BRANDS
+        MobileDestination.SUPPLIERS -> CatalogKind.SUPPLIERS
+        MobileDestination.COUNTRIES -> CatalogKind.COUNTRIES
+        MobileDestination.DEPARTMENTS -> CatalogKind.DEPARTMENTS
+        MobileDestination.EMPLOYEES -> CatalogKind.EMPLOYEES
+        else -> null
+    }
+
 /**
- * Solo enumera pantallas que existen y cuyo acceso de interfaz está permitido
- * por las reglas de rol confirmadas en Django. Django sigue siendo la autoridad.
+ * The same routes per role as `ROUTE_PERMISSIONS` in Frontend/js/core/rbac.js. The server
+ * remains the authority; this only decides what is offered. Listed in sidebar order.
  */
 fun navigationForRole(role: String): List<NavigationItem> = buildList {
-    if (role in EuropartesRoles.canReadProducts) {
-        add(NavigationItem(MobileDestination.PRODUCTS, MobileDestination.PRODUCTS.label))
+    fun add(destination: MobileDestination) = add(NavigationItem(destination, destination.label))
+    if (role in DASHBOARD_ROLES) add(MobileDestination.DASHBOARD)
+    if (role == EuropartesRoles.VENDEDOR) add(MobileDestination.SALES)
+    if (role in EuropartesRoles.canReadProducts) add(MobileDestination.PRODUCTS)
+    if (role == EuropartesRoles.OFICIAL_LOGISTICA) add(MobileDestination.DISPATCHES)
+    if (role in PURCHASING_ROLES) add(MobileDestination.PURCHASING)
+    if (role in setOf(EuropartesRoles.VENDEDOR, EuropartesRoles.SOPORTE_TI)) add(MobileDestination.CUSTOMERS)
+    MobileDestination.entries.forEach { destination ->
+        val kind = destination.catalogKind
+        if (kind != null && canReadCatalog(kind, role)) add(destination)
     }
-    if (role in EuropartesRoles.canReadKardex) {
-        add(NavigationItem(MobileDestination.KARDEX, MobileDestination.KARDEX.label))
-    }
-    if (CatalogKind.entries.any { canReadCatalog(it, role) }) {
-        add(NavigationItem(MobileDestination.CATALOGS, MobileDestination.CATALOGS.label))
-    }
-    if (role in setOf("Vendedor", "Coordinador de Logística", "Administrador General", "Asesor Financiero", "Oficial de Logística")) {
-        add(NavigationItem(MobileDestination.PURCHASING, MobileDestination.PURCHASING.label))
-    }
-    if (role in setOf(EuropartesRoles.VENDEDOR, EuropartesRoles.SOPORTE_TI)) {
-        add(NavigationItem(MobileDestination.CUSTOMERS, MobileDestination.CUSTOMERS.label))
-    }
-    if (role == EuropartesRoles.VENDEDOR) {
-        add(NavigationItem(MobileDestination.SALES, MobileDestination.SALES.label))
-    }
-    if (role in SALES_HISTORY_ROLES) {
-        add(NavigationItem(MobileDestination.SALES_HISTORY, MobileDestination.SALES_HISTORY.label))
-    }
-    if (role == EuropartesRoles.OFICIAL_LOGISTICA) {
-        add(NavigationItem(MobileDestination.DISPATCHES, MobileDestination.DISPATCHES.label))
-    }
-    if (role == EuropartesRoles.SOPORTE_TI) {
-        add(NavigationItem(MobileDestination.USER_ADMIN, MobileDestination.USER_ADMIN.label))
-    }
+    if (role in SALES_HISTORY_ROLES) add(MobileDestination.SALES_HISTORY)
+    if (role in PURCHASE_HISTORY_ROLES) add(MobileDestination.PURCHASE_HISTORY)
+    if (role in EuropartesRoles.canReadKardex) add(MobileDestination.KARDEX)
     if (role in EuropartesRoles.all) {
-        add(NavigationItem(MobileDestination.ACCOUNT_SECURITY, MobileDestination.ACCOUNT_SECURITY.label))
+        add(MobileDestination.CONFIGURATION)
+        add(MobileDestination.SYNC)
     }
-    if (role in DASHBOARD_ROLES) {
-        add(NavigationItem(MobileDestination.DASHBOARD, MobileDestination.DASHBOARD.label))
-    }
+    if (role == EuropartesRoles.SOPORTE_TI) add(MobileDestination.USER_ADMIN)
+}
+
+/** First screen after signing in, the same as `DEFAULT_ROUTE_BY_ROLE` on the web. */
+fun defaultDestination(role: String): MobileDestination = when (role) {
+    EuropartesRoles.ADMIN_GENERAL, EuropartesRoles.ASESOR_FINANCIERO, EuropartesRoles.COORDINADOR_LOGISTICA -> MobileDestination.DASHBOARD
+    EuropartesRoles.VENDEDOR -> MobileDestination.SALES
+    EuropartesRoles.SOPORTE_TI, EuropartesRoles.OFICIAL_LOGISTICA -> MobileDestination.PRODUCTS
+    else -> MobileDestination.CONFIGURATION
 }
 
 val DASHBOARD_ROLES = setOf(
     EuropartesRoles.ADMIN_GENERAL,
     EuropartesRoles.ASESOR_FINANCIERO,
     EuropartesRoles.COORDINADOR_LOGISTICA,
+)
+
+val PURCHASING_ROLES = setOf(
+    EuropartesRoles.ADMIN_GENERAL,
+    EuropartesRoles.ASESOR_FINANCIERO,
+    EuropartesRoles.VENDEDOR,
+    EuropartesRoles.COORDINADOR_LOGISTICA,
+    EuropartesRoles.OFICIAL_LOGISTICA,
 )
 
 val SALES_HISTORY_ROLES = setOf(

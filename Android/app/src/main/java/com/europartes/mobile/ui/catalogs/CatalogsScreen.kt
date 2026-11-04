@@ -1,37 +1,20 @@
 package com.europartes.mobile.ui.catalogs
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,166 +33,156 @@ import com.europartes.mobile.data.repository.CatalogForm
 import com.europartes.mobile.data.repository.CatalogItem
 import com.europartes.mobile.data.repository.CatalogKind
 import com.europartes.mobile.data.repository.EuropartesRoles
-import com.europartes.mobile.ui.components.EuropartesMetricPill
-import com.europartes.mobile.ui.components.EuropartesOutlinedCard
-import com.europartes.mobile.ui.components.EuropartesPrimaryButton
-import com.europartes.mobile.ui.components.EuropartesSectionCard
-import com.europartes.mobile.ui.components.EuropartesStateBadge
+import com.europartes.mobile.data.sync.pendingLabel
+import com.europartes.mobile.ui.components.ButtonVariant
+import com.europartes.mobile.ui.components.ConfirmDialog
+import com.europartes.mobile.ui.components.EmptyState
+import com.europartes.mobile.ui.components.EuropartesButton
+import com.europartes.mobile.ui.components.EuropartesCard
+import com.europartes.mobile.ui.components.EuropartesDialog
+import com.europartes.mobile.ui.components.EuropartesSearchField
+import com.europartes.mobile.ui.components.EuropartesSelect
 import com.europartes.mobile.ui.components.EuropartesStatusMessage
 import com.europartes.mobile.ui.components.EuropartesTextField
+import com.europartes.mobile.ui.components.LoadingState
+import com.europartes.mobile.ui.components.PageHeader
+import com.europartes.mobile.ui.components.PagePadding
+import com.europartes.mobile.ui.components.RecordActions
+import com.europartes.mobile.ui.components.RecordHeader
+import com.europartes.mobile.ui.components.SectionGap
+import com.europartes.mobile.ui.components.SelectOption
+import com.europartes.mobile.ui.components.StatusPill
+import com.europartes.mobile.ui.components.StatusTone
+import com.europartes.mobile.ui.components.formatDisplayDate
 import com.europartes.mobile.ui.navigation.canManageCatalog
-import com.europartes.mobile.ui.navigation.canReadCatalog
+import com.europartes.mobile.ui.theme.EuropartesTheme
 
-@Composable
-fun CatalogsScreen(role: String, sessionKey: Int, modifier: Modifier = Modifier, viewModel: CatalogsViewModel = viewModel(key = "catalogs_user_$sessionKey")) {
-    val state by viewModel.state.collectAsState()
-    val available = CatalogKind.entries.filter { canReadCatalog(it, role) }
-    LaunchedEffect(role, sessionKey) {
-        viewModel.reset()
-        available.firstOrNull()?.let { viewModel.select(it, role) }
-    }
-    DisposableEffect(sessionKey) {
-        onDispose { viewModel.reset() }
-    }
-    if (available.isEmpty()) {
-        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            EuropartesStatusMessage("Tu rol no tiene catálogos móviles habilitados.", isError = false)
-        }
-        return
-    }
-    CatalogsContent(
-        role = role, state = state, available = available,
-        onSelect = { viewModel.select(it, role) }, onRefresh = { viewModel.load(role) },
-        onCreate = { viewModel.openCreate(role) }, onEdit = { viewModel.openEdit(it, role) },
-        onDelete = { viewModel.askDelete(it, role) }, onConfirmDelete = { viewModel.confirmDelete(role) },
-        onCancelDelete = viewModel::cancelDelete, onIncludeInactive = { viewModel.load(role, it) },
-        onFormChange = viewModel::updateForm, onFormDismiss = viewModel::closeForm,
-        onSave = { viewModel.save(role) }, onClearMessage = viewModel::clearMessage,
-        modifier = modifier,
-    )
+private fun CatalogKind.pageTitle(): String = when (this) {
+    CatalogKind.BRANDS -> "Marcas"
+    CatalogKind.SUPPLIERS -> "Proveedores"
+    CatalogKind.COUNTRIES -> "Países"
+    CatalogKind.DEPARTMENTS -> "Departamentos"
+    CatalogKind.EMPLOYEES -> "Empleados"
 }
 
+private fun CatalogKind.pageDescription(): String = when (this) {
+    CatalogKind.BRANDS -> "Marcas disponibles para clasificar los productos."
+    CatalogKind.SUPPLIERS -> "Proveedores de abastecimiento y sus datos de contacto."
+    CatalogKind.COUNTRIES -> "Países de origen de los proveedores."
+    CatalogKind.DEPARTMENTS -> "Áreas de la empresa a las que pertenecen los empleados."
+    CatalogKind.EMPLOYEES -> "Fichas del personal y su departamento."
+}
+
+private fun CatalogKind.singularLabel(): String = when (this) {
+    CatalogKind.BRANDS -> "marca"
+    CatalogKind.SUPPLIERS -> "proveedor"
+    CatalogKind.COUNTRIES -> "país"
+    CatalogKind.DEPARTMENTS -> "departamento"
+    CatalogKind.EMPLOYEES -> "empleado"
+}
+
+private fun CatalogKind.newLabel(): String = if (this == CatalogKind.BRANDS) "Nueva marca" else "Nuevo ${singularLabel()}"
+
+/** One screen per catalog, as each one has its own entry in the web's sidebar. */
 @Composable
-private fun CatalogsContent(
-    role: String,
-    state: CatalogsUiState,
-    available: List<CatalogKind>,
-    onSelect: (CatalogKind) -> Unit,
-    onRefresh: () -> Unit,
-    onCreate: () -> Unit,
-    onEdit: (CatalogItem) -> Unit,
-    onDelete: (CatalogItem) -> Unit,
-    onConfirmDelete: () -> Unit,
-    onCancelDelete: () -> Unit,
-    onIncludeInactive: (Boolean) -> Unit,
-    onFormChange: (CatalogForm) -> Unit,
-    onFormDismiss: () -> Unit,
-    onSave: () -> Unit,
-    onClearMessage: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var search by rememberSaveable(state.kind) { mutableStateOf("") }
-    val canManage = canManageCatalog(state.kind, role)
-    val visible = state.items.filter { item ->
+fun CatalogsScreen(kind: CatalogKind, role: String, sessionKey: Int, modifier: Modifier = Modifier, viewModel: CatalogsViewModel = viewModel(key = "catalogs_user_$sessionKey")) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(kind, role, sessionKey) { viewModel.select(kind, role) }
+    var search by rememberSaveable(kind) { mutableStateOf("") }
+    val canManage = canManageCatalog(kind, role)
+    val busy = state.isWorking || state.isLoading
+    // While switching catalogs the view model may still hold the previous one for a frame.
+    val items = if (state.kind == kind) state.items else emptyList()
+    val visible = items.filter { item ->
         search.isBlank() || listOfNotNull(item.title, item.subtitle, item.details, item.id.toString()).any { it.contains(search.trim(), ignoreCase = true) }
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Catálogos", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text("Administración según tu rol · los cambios se confirman en el servidor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    LazyColumn(modifier, contentPadding = PaddingValues(PagePadding), verticalArrangement = Arrangement.spacedBy(SectionGap)) {
+        item {
+            PageHeader(
+                title = kind.pageTitle(),
+                description = kind.pageDescription(),
+                actions = {
+                    if (canManage) EuropartesButton(kind.newLabel(), { viewModel.openCreate(role) }, enabled = !busy, icon = Icons.Outlined.Add)
+                    EuropartesButton(if (state.isLoading) "Actualizando…" else "Actualizar", { viewModel.load(role) }, variant = ButtonVariant.Secondary, enabled = !busy, icon = Icons.Outlined.Refresh)
+                },
+            )
         }
-        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(available, key = { it.name }) { kind ->
-                FilterChip(selected = state.kind == kind, onClick = { search = ""; onSelect(kind) }, label = { Text(kind.label) }, enabled = !state.isWorking)
-            }
-        }
-        EuropartesTextField(value = search, onValueChange = { search = it }, label = "Buscar ${state.kind.label.lowercase()}", enabled = !state.isWorking)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            if (canManage) Button(onClick = onCreate, enabled = !state.isWorking && !state.isLoading, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("Nuevo registro") }
-            OutlinedButton(onClick = onRefresh, enabled = !state.isWorking && !state.isLoading, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (state.isLoading) "Actualizando…" else "Actualizar") }
-        }
-        if (state.kind == CatalogKind.EMPLOYEES && role == EuropartesRoles.SOPORTE_TI) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Incluir empleados inactivos", style = MaterialTheme.typography.titleSmall)
-                    Text("Solo disponible para Soporte TI", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item {
+            EuropartesCard {
+                EuropartesSearchField(search, { search = it }, "Buscar en ${kind.pageTitle().lowercase()}", enabled = !state.isWorking)
+                if (kind == CatalogKind.EMPLOYEES && role == EuropartesRoles.SOPORTE_TI) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Incluir inactivos", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = state.includeInactive, onCheckedChange = { viewModel.load(role, it) }, enabled = !busy)
+                    }
                 }
-                Switch(checked = state.includeInactive, onCheckedChange = onIncludeInactive, enabled = !state.isLoading && !state.isWorking)
+                Text("${visible.size} registro(s)", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
             }
         }
-        if (state.message != null) {
-            EuropartesStatusMessage(state.message, isError = state.messageIsError)
-            TextButton(onClick = onClearMessage) { Text("Cerrar mensaje") }
-        }
-        if (state.error != null && state.items.isNotEmpty()) {
-            EuropartesStatusMessage(state.error, isError = true)
-            TextButton(onClick = onRefresh, enabled = !state.isLoading && !state.isWorking) { Text("Reintentar") }
-        }
+        state.message?.let { message -> item { EuropartesStatusMessage(message, isError = state.messageIsError, onDismiss = viewModel::clearMessage) } }
+        if (state.error != null && items.isNotEmpty()) item { EuropartesStatusMessage(state.error!!, isError = true) }
         when {
-            state.isLoading && state.items.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            state.error != null && state.items.isEmpty() -> Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Center) {
-                EuropartesStatusMessage(state.error, isError = true)
-                EuropartesPrimaryButton("Reintentar consulta", onRefresh, enabled = !state.isLoading)
+            state.isLoading && items.isEmpty() -> item { LoadingState("Cargando ${kind.pageTitle().lowercase()}…") }
+            state.error != null && items.isEmpty() -> item {
+                EmptyState("No fue posible cargar los datos", state.error, icon = Icons.Outlined.Category, action = { EuropartesButton("Reintentar", { viewModel.load(role) }, enabled = !state.isLoading) })
             }
-            state.hasLoaded && state.items.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                EuropartesSectionCard(title = "${state.kind.label} sin registros", subtitle = "No hay datos disponibles para mostrar.") {
-                    if (canManage) Button(onClick = onCreate) { Text("Crear registro") }
-                }
+            state.hasLoaded && items.isEmpty() -> item {
+                EmptyState("Sin registros", "No hay ${kind.pageTitle().lowercase()} para mostrar.", icon = Icons.Outlined.Category, action = if (canManage) { { EuropartesButton(kind.newLabel(), { viewModel.openCreate(role) }) } } else null)
             }
-            visible.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                EuropartesSectionCard(title = "Sin coincidencias", subtitle = "Prueba con otro nombre, cargo o identificador.") { TextButton(onClick = { search = "" }) { Text("Limpiar búsqueda") } }
+            visible.isEmpty() && search.isNotBlank() -> item {
+                EmptyState("Sin coincidencias", "Prueba con otro nombre o identificador.", icon = Icons.Outlined.Category, action = { EuropartesButton("Limpiar búsqueda", { search = "" }, variant = ButtonVariant.Secondary) })
             }
-            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(visible, key = { it.id }) { item -> CatalogCard(item, state.kind, canManage, state.isWorking || state.isLoading, onEdit = { onEdit(item) }, onAction = { onDelete(item) }) }
+            else -> items(visible, key = { it.id }) { item ->
+                CatalogCard(item, kind, canManage, item.id in state.pendingIds, busy, onEdit = { viewModel.openEdit(item, role) }, onAction = { viewModel.askDelete(item, role) })
             }
         }
     }
-    if (state.formOpen) CatalogFormDialog(
-        kind = state.kind, form = state.form, editing = state.editingId != null,
+    if (state.formOpen && state.kind == kind) CatalogFormDialog(
+        kind = kind, form = state.form, editing = state.editingId != null,
         relatedCountries = state.countries, relatedDepartments = state.departments,
         isWorking = state.isWorking, message = state.message.takeIf { state.messageIsError },
-        onChange = onFormChange, onDismiss = onFormDismiss, onSubmit = onSave,
+        role = role, sessionKey = sessionKey,
+        onRelatedChanged = { viewModel.openRelatedRefresh(role) },
+        onChange = viewModel::updateForm, onDismiss = viewModel::closeForm, onSubmit = { viewModel.save(role) },
     )
     state.confirming?.let { item ->
-        val employee = state.kind == CatalogKind.EMPLOYEES
+        val employee = kind == CatalogKind.EMPLOYEES
         val reactivating = employee && item.active == false
-        AlertDialog(
-            onDismissRequest = { if (!state.isWorking) onCancelDelete() },
-            title = { Text(when { reactivating -> "Reactivar empleado"; employee -> "Desactivar empleado"; else -> "Eliminar ${state.kind.label.lowercase()}" }) },
-            text = { Text(when {
+        ConfirmDialog(
+            title = when { reactivating -> "Reactivar empleado"; employee -> "Desactivar empleado"; else -> "Eliminar ${kind.singularLabel()}" },
+            message = when {
                 reactivating -> "¿Reactivar ${item.title}? Volverá a aparecer entre los empleados activos."
-                employee -> "¿Desactivar ${item.title}? El registro se conservará mediante la baja lógica del servidor."
-                else -> "¿Eliminar ${item.title} de forma permanente? La operación puede ser rechazada si existen registros relacionados."
-            }) },
-            confirmButton = { Button(enabled = !state.isWorking, onClick = onConfirmDelete) { Text(when { reactivating -> "Reactivar"; employee -> "Desactivar"; else -> "Eliminar" }) } },
-            dismissButton = { TextButton(enabled = !state.isWorking, onClick = onCancelDelete) { Text("Cancelar") } },
+                employee -> "¿Desactivar ${item.title}? El registro se conservará en el servidor."
+                else -> "¿Eliminar ${item.title}? No se podrá si tiene registros relacionados."
+            },
+            confirmText = when { reactivating -> "Reactivar"; employee -> "Desactivar"; else -> "Eliminar" },
+            danger = !reactivating,
+            busy = state.isWorking,
+            onConfirm = { viewModel.confirmDelete(role) },
+            onDismiss = viewModel::cancelDelete,
         )
     }
 }
 
 @Composable
-private fun CatalogCard(item: CatalogItem, kind: CatalogKind, canManage: Boolean, isWorking: Boolean, onEdit: () -> Unit, onAction: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(item.title, style = MaterialTheme.typography.titleMedium)
-                    Text("Código #${item.id}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                item.active?.let { EuropartesStateBadge(if (it) "Activo" else "Inactivo", isPositive = it) }
-            }
-            item.subtitle?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
-            item.details?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            item.registeredAt?.let { Text("Registro · $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (canManage) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onEdit, enabled = !isWorking, modifier = Modifier.weight(1f)) { Text("Editar") }
-                    Button(onClick = onAction, enabled = !isWorking, modifier = Modifier.weight(1f)) {
-                        Text(if (kind == CatalogKind.EMPLOYEES) if (item.active == false) "Reactivar" else "Desactivar" else "Eliminar")
-                    }
-                }
-            }
+private fun CatalogCard(item: CatalogItem, kind: CatalogKind, canManage: Boolean, isPending: Boolean, isWorking: Boolean, onEdit: () -> Unit, onAction: () -> Unit) {
+    EuropartesCard {
+        RecordHeader(item.title, if (isPending) "Pendiente de sincronizar" else "Código ${pendingLabel(item.id)}") {
+            item.active?.let { StatusPill(if (it) "Activo" else "Inactivo", if (it) StatusTone.Success else StatusTone.Neutral) }
+        }
+        item.subtitle?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface) }
+        item.details?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item.registeredAt?.let { Text("Registrado: ${formatDisplayDate(it)}", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted) }
+        if (canManage) RecordActions {
+            EuropartesButton("Editar", onEdit, variant = ButtonVariant.Secondary, small = true, enabled = !isWorking)
+            val reactivate = kind == CatalogKind.EMPLOYEES && item.active == false
+            EuropartesButton(
+                if (kind == CatalogKind.EMPLOYEES) (if (reactivate) "Reactivar" else "Desactivar") else "Eliminar",
+                onAction,
+                variant = if (reactivate) ButtonVariant.Primary else ButtonVariant.Danger,
+                small = true,
+                enabled = !isWorking,
+            )
         }
     }
 }
@@ -226,67 +199,104 @@ private fun CatalogFormDialog(
     onChange: (CatalogForm) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: () -> Unit,
+    role: String = "",
+    sessionKey: Int = 0,
+    onRelatedChanged: () -> Unit = {},
+    allowRelatedShortcuts: Boolean = true,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("${if (editing) "Editar" else "Nuevo"} ${kind.singularLabel()}") },
-        text = {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                when (kind) {
-                    CatalogKind.BRANDS, CatalogKind.COUNTRIES -> CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre *", isWorking)
-                    CatalogKind.DEPARTMENTS -> {
-                        CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre *", isWorking)
-                        CatalogField(form.description, { onChange(form.copy(description = it)) }, "Descripción *", isWorking, multiline = true)
-                    }
-                    CatalogKind.SUPPLIERS -> {
-                        CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre comercial *", isWorking)
-                        RelatedSelector("País *", relatedCountries.map { it.id to it.name }, form.relatedId, isWorking) { onChange(form.copy(relatedId = it)) }
-                        CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono *", isWorking, KeyboardType.Phone)
-                        CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico *", isWorking, KeyboardType.Email)
-                        CatalogField(form.website, { onChange(form.copy(website = it)) }, "Sitio web *", isWorking, KeyboardType.Uri)
-                    }
-                    CatalogKind.EMPLOYEES -> {
-                        CatalogField(form.names, { onChange(form.copy(names = it)) }, "Nombres *", isWorking)
-                        CatalogField(form.surnames, { onChange(form.copy(surnames = it)) }, "Apellidos *", isWorking)
-                        CatalogField(form.title, { onChange(form.copy(title = it)) }, "Cargo *", isWorking)
-                        CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono *", isWorking, KeyboardType.Phone)
-                        CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico *", isWorking, KeyboardType.Email)
-                        RelatedSelector("Departamento *", relatedDepartments.map { it.id to it.name }, form.relatedId, isWorking) { onChange(form.copy(relatedId = it)) }
-                        if (editing) EuropartesOutlinedCard {
-                            Text(form.linkedUserId?.let { "Usuario vinculado #$it · se administra en Usuarios" } ?: "Sin usuario vinculado · la relación se administra en Usuarios", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                if (message != null) EuropartesStatusMessage(message, isError = true)
-            }
+    val enabled = !isWorking
+    var quickRelated by remember { mutableStateOf<Pair<CatalogKind, Int?>?>(null) }
+    EuropartesDialog(
+        title = if (editing) "Editar ${kind.singularLabel()}" else kind.newLabel(),
+        onDismiss = onDismiss,
+        dismissEnabled = enabled,
+        footer = {
+            EuropartesButton("Cancelar", onDismiss, variant = ButtonVariant.Secondary, enabled = enabled)
+            EuropartesButton("Guardar", onSubmit, isLoading = isWorking)
         },
-        confirmButton = { Button(onClick = onSubmit, enabled = !isWorking) { if (isWorking) CircularProgressIndicator() else Text("Guardar") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isWorking) { Text("Cancelar") } },
-    )
+    ) {
+        when (kind) {
+            CatalogKind.BRANDS, CatalogKind.COUNTRIES -> CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre", enabled)
+            CatalogKind.DEPARTMENTS -> {
+                CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre", enabled)
+                CatalogField(form.description, { onChange(form.copy(description = it)) }, "Descripción", enabled, multiline = true)
+            }
+            CatalogKind.SUPPLIERS -> {
+                CatalogField(form.name, { onChange(form.copy(name = it)) }, "Nombre comercial", enabled)
+                RelatedSelector("País", relatedCountries.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.COUNTRIES, role)) { { quickRelated = CatalogKind.COUNTRIES to null } } else null)
+                CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono", enabled, KeyboardType.Phone)
+                CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico", enabled, KeyboardType.Email)
+                CatalogField(form.website, { onChange(form.copy(website = it)) }, "Sitio web", enabled, KeyboardType.Uri)
+            }
+            CatalogKind.EMPLOYEES -> {
+                CatalogField(form.names, { onChange(form.copy(names = it)) }, "Nombres", enabled)
+                CatalogField(form.surnames, { onChange(form.copy(surnames = it)) }, "Apellidos", enabled)
+                CatalogField(form.title, { onChange(form.copy(title = it)) }, "Cargo", enabled)
+                RelatedSelector("Departamento", relatedDepartments.map { it.id to it.name }, form.relatedId, enabled, { onChange(form.copy(relatedId = it)) }, onAdd = if (allowRelatedShortcuts && canManageCatalog(CatalogKind.DEPARTMENTS, role)) { { quickRelated = CatalogKind.DEPARTMENTS to null } } else null)
+                CatalogField(form.phone, { onChange(form.copy(phone = it)) }, "Teléfono", enabled, KeyboardType.Phone)
+                CatalogField(form.email, { onChange(form.copy(email = it)) }, "Correo electrónico", enabled, KeyboardType.Email)
+                if (editing) Text(form.linkedUserId?.let { "Usuario vinculado #$it. La relación se administra en Usuarios y roles." } ?: "Sin usuario vinculado. La relación se administra en Usuarios y roles.", style = MaterialTheme.typography.bodySmall, color = EuropartesTheme.colors.muted)
+            }
+        }
+        if (message != null) EuropartesStatusMessage(message, isError = true)
+    }
+    quickRelated?.let { (related, id) ->
+        CatalogQuickEditor(related, id, role, sessionKey, onClose = { quickRelated = null; onRelatedChanged() })
+    }
 }
 
-private fun CatalogKind.singularLabel(): String = when (this) {
-    CatalogKind.BRANDS -> "marca"
-    CatalogKind.SUPPLIERS -> "proveedor"
-    CatalogKind.COUNTRIES -> "país"
-    CatalogKind.DEPARTMENTS -> "departamento"
-    CatalogKind.EMPLOYEES -> "empleado"
+/**
+ * Opens one catalog's form on top of another form (the web's add/edit shortcuts), using its own
+ * view model so the list behind it keeps its state.
+ */
+@Composable
+fun CatalogQuickEditor(kind: CatalogKind, itemId: Int?, role: String, sessionKey: Int, onClose: () -> Unit) {
+    val viewModel: CatalogsViewModel = viewModel(key = "catalogs_quick_${sessionKey}_${kind.name}")
+    val state by viewModel.state.collectAsState()
+    var opened by remember(kind, itemId) { mutableStateOf(false) }
+    LaunchedEffect(kind, itemId) { viewModel.select(kind, role) }
+    LaunchedEffect(state.kind, state.hasLoaded, state.isLoading) {
+        if (!opened && state.kind == kind && state.hasLoaded && !state.isLoading) {
+            opened = true
+            val existing = itemId?.let { id -> state.items.firstOrNull { it.id == id } }
+            if (existing != null) viewModel.openEdit(existing, role) else viewModel.openCreate(role)
+        }
+    }
+    // Closes only after the form was actually seen open: the first effect can open it before this state updates.
+    var seenOpen by remember(kind, itemId) { mutableStateOf(false) }
+    LaunchedEffect(state.formOpen) {
+        if (state.formOpen) seenOpen = true else if (seenOpen) onClose()
+    }
+    if (state.formOpen && state.kind == kind) {
+        CatalogFormDialog(
+            kind = kind, form = state.form, editing = state.editingId != null,
+            relatedCountries = state.countries, relatedDepartments = state.departments,
+            isWorking = state.isWorking, message = state.message.takeIf { state.messageIsError },
+            role = role, sessionKey = sessionKey, allowRelatedShortcuts = false,
+            onChange = viewModel::updateForm, onDismiss = viewModel::closeForm, onSubmit = { viewModel.save(role) },
+        )
+    }
 }
 
 @Composable
 private fun CatalogField(value: String, onValueChange: (String) -> Unit, label: String, enabled: Boolean, keyboard: KeyboardType = KeyboardType.Text, multiline: Boolean = false) {
-    OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth(), label = { Text(label) }, enabled = enabled, singleLine = !multiline, minLines = if (multiline) 2 else 1, keyboardOptions = KeyboardOptions(keyboardType = keyboard), shape = RoundedCornerShape(13.dp))
+    EuropartesTextField(value, onValueChange, label, enabled = enabled, required = true, multiline = multiline, keyboardOptions = KeyboardOptions(keyboardType = keyboard))
 }
 
 @Composable
-private fun RelatedSelector(label: String, options: List<Pair<Int, String>>, selectedId: Int?, enabled: Boolean, onSelected: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled && options.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp)) {
-            Text(options.firstOrNull { it.first == selectedId }?.second ?: if (options.isEmpty()) "No hay opciones disponibles" else label, modifier = Modifier.fillMaxWidth())
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { (id, name) -> DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(id); expanded = false }) }
-        }
+private fun RelatedSelector(label: String, options: List<Pair<Int, String>>, selectedId: Int?, enabled: Boolean, onSelected: (Int) -> Unit, onAdd: (() -> Unit)? = null) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        EuropartesSelect(
+            label = label,
+            options = options.map { (id, name) -> SelectOption(id, name) },
+            selected = selectedId,
+            onSelect = onSelected,
+            modifier = Modifier.weight(1f),
+            enabled = enabled && options.isNotEmpty(),
+            required = true,
+            placeholder = if (options.isEmpty()) "No hay opciones disponibles" else "Seleccionar ${label.lowercase()}",
+        )
+        if (onAdd != null) EuropartesButton("Nuevo", onAdd, variant = ButtonVariant.Secondary, enabled = enabled, icon = Icons.Outlined.Add)
     }
 }
+

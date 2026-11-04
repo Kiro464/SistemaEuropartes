@@ -279,19 +279,25 @@ class LocalProductRepository(
 
     suspend fun cacheRemote(products: List<ProductDto>, owner: Int?, includeInactive: Boolean = false) = withContext(Dispatchers.IO) {
         val account = owner?.takeIf { it > 0 } ?: return@withContext
-        val queryKey = "includeInactive=$includeInactive"
+        val previous = dao.getSyncMetadata("products:$account")
+        val hadInactive = previous?.queryKey == "includeInactive=true"
+        // An active-only response must not erase inactive products a full download already saved.
+        val keptInactive = if (!includeInactive && hadInactive) {
+            val received = products.mapTo(HashSet()) { it.id }
+            dao.getRemoteCache(account).filter { it.estado == false && it.remoteId !in received }.map { it.copy(localId = 0) }
+        } else emptyList()
         dao.replaceRemoteCache(
             account,
-            products.map { it.toEntity(account) },
-            SyncMetadataEntity("products:$account", queryKey, System.currentTimeMillis()),
+            products.map { it.toEntity(account) } + keptInactive,
+            SyncMetadataEntity("products:$account", "includeInactive=${includeInactive || hadInactive}", System.currentTimeMillis()),
         )
     }
 
     suspend fun cachedRemoteSnapshot(includeInactive: Boolean, owner: Int?): Pair<List<ProductEntity>, Long>? = withContext(Dispatchers.IO) {
         val account = owner?.takeIf { it > 0 } ?: return@withContext null
         val metadata = dao.getSyncMetadata("products:$account") ?: return@withContext null
-        if (metadata.queryKey != "includeInactive=$includeInactive") return@withContext null
-        dao.getRemoteCache(account) to metadata.lastSuccessAtEpochMs
+        val rows = dao.getRemoteCache(account)
+        (if (includeInactive) rows else rows.filter { it.estado != false }) to metadata.lastSuccessAtEpochMs
     }
 
     private fun ProductDto.toEntity(owner: Int) = ProductEntity(

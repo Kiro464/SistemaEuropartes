@@ -1,21 +1,23 @@
 package com.europartes.mobile.data.remote
 
+import com.europartes.mobile.data.local.NetworkAvailability
 import com.europartes.mobile.data.local.TokenStore
 import com.europartes.mobile.data.repository.JwtAuthenticator
 import com.europartes.mobile.data.repository.ReadRetryInterceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 object ApiClient {
-    private const val BASE_URL = "https://europartes-api-h0dcb5dhddgngxcr.westus-01.azurewebsites.net/"
+    private val BASE_URL = com.europartes.mobile.BuildConfig.API_BASE_URL
 
     private val converterFactory by lazy { GsonConverterFactory.create() }
 
     private val baseClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -46,6 +48,11 @@ object ApiClient {
 
     private fun authenticatedClient(tokenStore: TokenStore): OkHttpClient =
         baseClient.newBuilder()
+            .addInterceptor { chain ->
+                // Without any network, fail at once so screens show the Room copy without waiting.
+                if (!NetworkAvailability.hasAnyNetwork(tokenStore.appContext)) throw UnknownHostException("Sin conexión")
+                chain.proceed(chain.request())
+            }
             .addInterceptor { chain ->
                 val token = tokenStore.accessToken()
                 val request = chain.request().newBuilder().apply {
