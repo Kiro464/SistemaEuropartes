@@ -204,6 +204,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'config.exceptions.europartes_exception_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'apps.seguridad.usuarios.authentication.EuropartesJWTAuthentication',
     ),

@@ -204,6 +204,14 @@ class RBACCatalogosAPITestCase(APITestCase):
             status.HTTP_403_FORBIDDEN,
         )
 
+    def test_eliminar_marca_con_productos_responde_conflicto(self):
+        self.autenticar("Coordinador de Logística")
+
+        response = self.client.delete(self.url_detail("marca", self.marca.id))
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(Marca.objects.filter(pk=self.marca.pk).exists())
+
     def test_producto_alta_valida_inicia_con_stock_cero(self):
         """El stock es de solo lectura: un alta válida debe guardarse con stock 0."""
         payload = {
