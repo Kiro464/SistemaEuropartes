@@ -293,6 +293,40 @@ SSIS_ETL = {
     "package": "00_Master_ETL.dtsx",
 }
 
+# ==========================================
+# ETL EN AZURE DATA FACTORY
+# ==========================================
+# En Azure el paquete maestro se lanza con un pipeline de Data Factory que usa
+# el Azure-SSIS Integration Runtime. La autenticación es con la identidad
+# administrada del App Service: aquí no hay secretos, solo nombres de recursos.
+
+AZURE_ETL = {
+    # "adf" en Azure App Service; "ssisdb" lanza el paquete en el SSISDB local.
+    "ejecutor": os.getenv(
+        "ETL_EJECUTOR",
+        "adf" if os.environ.get("WEBSITE_INSTANCE_ID") else "ssisdb",
+    ).strip().lower(),
+    "subscription_id": os.getenv(
+        "AZURE_SUBSCRIPTION_ID", "1b42caf2-54ff-49f2-a600-5321363eb085"
+    ),
+    "resource_group": os.getenv("AZURE_RESOURCE_GROUP", "rg-europartes"),
+    "factory_name": os.getenv("AZURE_DATA_FACTORY_NAME", "adf-europartes"),
+    "pipeline_name": os.getenv("AZURE_ETL_PIPELINE_NAME", "PL_Ejecutar_ETL_Europartes"),
+    # Minutos tras los que una fila INICIADA sin ejecución en Azure se da por
+    # abandonada y deja de bloquear nuevos inicios.
+    "minutos_huerfana": int(os.getenv("ETL_MINUTOS_HUERFANA", "30")),
+}
+
+# Zona horaria de las fechas que el DW guarda con SYSDATETIME(): Azure SQL
+# Database trabaja siempre en UTC. Vacío = la misma TIME_ZONE (SQL Server local).
+DW_ZONA_HORARIA = os.getenv(
+    "DW_ZONA_HORARIA",
+    "UTC" if os.environ.get("WEBSITE_INSTANCE_ID") else "",
+).strip() or None
+
+if AZURE_ETL["ejecutor"] not in ("adf", "ssisdb"):
+    raise ImproperlyConfigured("ETL_EJECUTOR debe ser 'adf' o 'ssisdb'.")
+
 # La aplicación está publicada detrás del proxy HTTPS de Azure.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 

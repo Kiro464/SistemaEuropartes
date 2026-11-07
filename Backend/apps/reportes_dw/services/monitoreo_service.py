@@ -1,4 +1,5 @@
 from ..repositories.monitoreo_repository import MonitoreoRepository, MonitoreoETLRepository
+from .fechas_dw import a_local
 
 
 class MonitoreoService:
@@ -10,4 +11,9 @@ class MonitoreoService:
         return {"hechos": self.repo.conteos_hechos()}
 
     def estado_etl(self):
-        return {"ultima_ejecucion": self.etl_repo.ultima_ejecucion()}
+        ejecucion = self.etl_repo.ultima_ejecucion()
+        if ejecucion:
+            # En Azure SQL las fechas están en UTC: se devuelven en hora local.
+            for campo in ("fecha_inicio", "fecha_fin"):
+                ejecucion[campo] = a_local(ejecucion[campo])
+        return {"ultima_ejecucion": ejecucion}

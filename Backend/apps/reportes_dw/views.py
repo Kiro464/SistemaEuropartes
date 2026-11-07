@@ -2,6 +2,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 
+import logging
+
+from .services.adf_client import DataFactoryError
 from .services.etl_service import (
     ETLService,
     ETLOrchestrationError,
@@ -174,26 +177,43 @@ class EstadoETLIndicadorView(APIView):
         return Response(_monitoreo.estado_etl())
 
 
+logger = logging.getLogger(__name__)
+
+HISTORIAL_POR_DEFECTO = 20
+HISTORIAL_MAXIMO = 100
+
+
+def _respuesta_etl(accion):
+    """Ejecuta una operación ETL y traduce sus errores a respuestas HTTP estables."""
+    try:
+        return accion()
+    except ETLOrchestrationError as exc:
+        cuerpo = {"detail": str(exc)}
+        if exc.ejecucion:
+            cuerpo["ejecucion"] = exc.ejecucion
+        return Response(cuerpo, status=status.HTTP_409_CONFLICT)
+    except DataFactoryError as exc:
+        # El detalle técnico ya quedó en el log; al cliente solo un mensaje seguro.
+        return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+def _encontrado(resultado, mensaje):
+    if resultado is None:
+        return Response({"detail": mensaje}, status=status.HTTP_404_NOT_FOUND)
+    return Response(resultado)
+
+
+# ============================================================
+# ETL: endpoints usados por la web y la app móvil (reportes_dw/etl/...)
+# ============================================================
+
 class EjecutarETLView(APIView):
     permission_classes = [PuedeActualizarDashboard]
 
     def post(self, request):
-        service = ETLService()
-
-        try:
-            resultado = service.ejecutar_master()
-
-        except ETLOrchestrationError as exc:
-            return Response(
-                {
-                    "detail": str(exc),
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        return Response(
-            resultado,
-            status=status.HTTP_202_ACCEPTED,
+        logger.info("Inicio de ETL solicitado por %s", request.user.get_username())
+        return _respuesta_etl(
+            lambda: Response(ETLService().ejecutar_master(), status=status.HTTP_202_ACCEPTED)
         )
 
 
@@ -201,39 +221,48 @@ class EstadoETLView(APIView):
     permission_classes = [PuedeActualizarDashboard]
 
     def get(self, request, ejecucion_key):
-        service = ETLService()
-
-        resultado = service.consultar_ejecucion(
-            ejecucion_key
-        )
-
-        if resultado is None:
-            return Response(
-                {
-                    "detail": "Ejecución ETL no encontrada."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        return Response(resultado)
+        return _respuesta_etl(lambda: _encontrado(
+            ETLService().consultar_ejecucion(ejecucion_key),
+            "Ejecución ETL no encontrada.",
+        ))
 
 
 class UltimaEjecucionETLView(APIView):
     permission_classes = [PuedeActualizarDashboard]
 
     def get(self, request):
-        service = ETLService()
+        return _respuesta_etl(lambda: _encontrado(
+            ETLService().ultima_ejecucion(),
+            "No existen ejecuciones ETL.",
+        ))
 
-        resultado = service.ultima_ejecucion()
 
-        if resultado is None:
+# ============================================================
+# ETL en Azure Data Factory (api/etl/...)
+# ============================================================
+
+class EstadoRunETLView(APIView):
+    """Estado de una ejecución por su runId de Azure Data Factory."""
+
+    permission_classes = [PuedeActualizarDashboard]
+
+    def get(self, request, run_id):
+        return _respuesta_etl(lambda: _encontrado(
+            ETLService().consultar_run(run_id),
+            "Ejecución ETL no encontrada en Azure Data Factory.",
+        ))
+
+
+class HistorialETLView(APIView):
+    permission_classes = [PuedeActualizarDashboard]
+
+    def get(self, request):
+        try:
+            limite = int(request.query_params.get("limit", HISTORIAL_POR_DEFECTO))
+        except ValueError:
             return Response(
-                {
-                    "detail": "No existen ejecuciones ETL."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+                {"detail": "El parámetro limit debe ser un número entero."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-
-        return Response(resultado)
-
-
+        limite = max(1, min(limite, HISTORIAL_MAXIMO))
+        return _respuesta_etl(lambda: Response(ETLService().historial(limite)))

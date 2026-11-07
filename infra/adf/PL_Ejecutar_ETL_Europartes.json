@@ -1,0 +1,52 @@
+{
+    "name": "PL_Ejecutar_ETL_Europartes",
+    "properties": {
+        "description": "Ejecuta el paquete maestro 00_Master_ETL.dtsx del SSISDB en el Azure-SSIS Integration Runtime. Lo inicia el backend Europartes con pEjecucionKey.",
+        "activities": [
+            {
+                "name": "Ejecutar 00_Master_ETL",
+                "type": "ExecuteSSISPackage",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.02:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "packageLocation": {
+                        "packagePath": "Europartes/ETL_Europartes/00_Master_ETL.dtsx",
+                        "type": "SSISDB"
+                    },
+                    "runtime": "x64",
+                    "loggingLevel": "Basic",
+                    "packageParameters": {
+                        "pEjecucionKey": {
+                            "value": {
+                                "value": "@pipeline().parameters.pEjecucionKey",
+                                "type": "Expression"
+                            }
+                        }
+                    },
+                    "connectVia": {
+                        "referenceName": "ir-europartes-ssis",
+                        "type": "IntegrationRuntimeReference"
+                    }
+                }
+            }
+        ],
+        "parameters": {
+            "pEjecucionKey": {
+                "type": "int",
+                "defaultValue": 0
+            }
+        },
+        "concurrency": 1,
+        "annotations": [
+            "Europartes",
+            "ETL"
+        ]
+    }
+}

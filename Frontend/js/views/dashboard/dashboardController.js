@@ -11,6 +11,19 @@ const num = value => Number(value || 0);
 const money = value => `${StateManager.getSimbolo()} ${StateManager.getPrecioVisual(num(value)).toLocaleString('es-NI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const integer = value => num(value).toLocaleString('es-NI', { maximumFractionDigits: 0 });
 
+// Estados de una ejecución ETL que aún no terminó (los mismos que devuelve el backend).
+const ETL_ACTIVOS = ['INICIADA', 'EN_PROCESO'];
+// Se consulta cada 5 s durante, como mucho, el timeout de la actividad del pipeline (2 h).
+const ETL_INTERVALO_MS = 5000;
+const ETL_ESPERA_MAXIMA_MS = 2 * 60 * 60 * 1000;
+// Consultas fallidas seguidas antes de dejar de esperar (el ETL sigue en Azure).
+const ETL_FALLOS_CONSULTA = 6;
+
+const etlEstado = data => String(data?.estado ?? data?.Estado ?? '').toUpperCase();
+const etlClave = data => data?.ejecucion_key ?? data?.EjecucionKey ?? null;
+const etlDetalle = error => error?.data?.detail || error?.message;
+const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const rangeLabel = {
     mes: 'Últimos 30 días',
     semana: 'Últimos 7 días',
@@ -21,17 +34,30 @@ const rangeLabel = {
 export const DashboardController = {
     _onMonedaCambiada: null,
     _requestId: 0,
+    // true mientras se inicia o se sigue una ejecución ETL.
     _actualizandoETL: false,
+    // Clave de una ejecución que sigue en curso cuando la interfaz dejó de esperarla.
+    _etlPendiente: null,
+    // Cambia en cada entrada al módulo para detener seguimientos de la visita anterior.
+    _seguimiento: 0,
+    _cargando: false,
     _eventsBound: false,
 
     async init() {
         const root = document.getElementById('main-content');
         if (!root) return;
         root.innerHTML = DashboardView.render();
+        this._seguimiento++;
+        this._actualizandoETL = false;
+        this._etlPendiente = null;
         this.updateIdentityContext();
         this.bindEvents();
-        // Al abrir el Dashboard se actualiza primero el DW y luego se cargan los indicadores.
-        await this.actualizarDashboard(false);
+
+        // Al abrir el Dashboard solo se leen los datos del DW: el ETL se inicia
+        // únicamente con el botón «Actualizar».
+        const rango = document.getElementById('dash-filtro-tiempo')?.value || 'mes';
+        await this.loadAllData(rango);
+        await this.revisarEjecucionEnCurso();
 
         this._onMonedaCambiada = () => {
             const select = document.getElementById('dash-filtro-tiempo');
@@ -49,8 +75,15 @@ export const DashboardController = {
         // Los elementos se recrean en cada entrada al módulo, por lo que estos
         // listeners no se acumulan entre navegaciones.
         select.addEventListener('change', e => this.loadAllData(e.target.value));
-        button.addEventListener('click', () => this.actualizarDashboard(true));
+        button.addEventListener('click', () => this.onBotonActualizar());
         this._eventsBound = true;
+    },
+
+    onBotonActualizar() {
+        if (this._actualizandoETL) return;
+        // Si hay una ejecución en curso, el botón solo consulta su estado.
+        if (this._etlPendiente) return this.seguirETL(this._etlPendiente);
+        return this.actualizarDashboard();
     },
 
     updateIdentityContext() {
@@ -62,98 +95,153 @@ export const DashboardController = {
         target.innerHTML = `<i class='bx bx-user-check'></i><span>${esc(name)}</span><strong>${esc(role)}</strong>`;
     },
 
-    async actualizarDashboard(manual = false) {
-        if (this._actualizandoETL) return;
-
-        const rango = document.getElementById('dash-filtro-tiempo')?.value || 'mes';
-        this._actualizandoETL = true;
-        this.setLoading(true);
-        this.showAlert('Actualizando datos del Data Warehouse…', 'info');
-
+    /** Si la última ejecución sigue en curso, se muestra y se sigue sin lanzar otra. */
+    async revisarEjecucionEnCurso() {
+        const seguimiento = this._seguimiento;
+        let ultima;
         try {
-            let inicio;
+            ultima = await DashboardService.getUltimaEjecucionETL();
+        } catch (error) {
+            // 404: todavía no hay ejecuciones. Otros errores no impiden ver los datos.
+            if (error?.status !== 404) console.error('Dashboard: última ejecución ETL', error);
+            return;
+        }
+        if (seguimiento !== this._seguimiento || !ETL_ACTIVOS.includes(etlEstado(ultima))) return;
+        const clave = etlClave(ultima);
+        if (clave) await this.seguirETL(clave);
+    },
 
+    /** Inicia una ejecución ETL (solo desde el botón) y sigue su progreso. */
+    async actualizarDashboard() {
+        if (this._actualizandoETL) return;
+        this._actualizandoETL = true;
+        this.refreshButton();
+        this.showAlert('Solicitando la actualización del Data Warehouse…', 'info');
+
+        let inicio;
+        try {
             try {
                 inicio = await DashboardService.ejecutarETL();
             } catch (error) {
-                // Si otra sesión ya está ejecutando el ETL, se reutiliza esa ejecución.
-                if (error.status !== 409) throw error;
-                inicio = await DashboardService.getUltimaEjecucionETL();
-            }
-
-            const ejecucionKey = inicio?.ejecucion_key ?? inicio?.EjecucionKey;
-            if (!ejecucionKey) {
-                throw new Error('El servidor no devolvió la clave de ejecución ETL.');
-            }
-
-            const estadoFinal = await this.esperarETL(ejecucionKey);
-            const estado = String(estadoFinal?.estado ?? estadoFinal?.Estado ?? '').toUpperCase();
-
-            if (estado !== 'EXITOSA') {
-                throw new Error(
-                    estadoFinal?.mensaje ??
-                    estadoFinal?.Mensaje ??
-                    `La ejecución ETL terminó con estado ${estado || 'DESCONOCIDO'}.`
-                );
-            }
-
-            // El ETL terminó correctamente: ahora sí se consultan los indicadores.
-            await this.loadAllData(rango, false);
-
-            if (manual) {
-                UI.showToast('Dashboard actualizado correctamente', 'success');
+                if (error?.status !== 409) throw error;
+                // Ya hay una ejecución en curso: se sigue esa, sin lanzar otra.
+                inicio = etlClave(error.data?.ejecucion)
+                    ? error.data.ejecucion
+                    : await DashboardService.getUltimaEjecucionETL();
             }
         } catch (error) {
-            console.error('Error actualizando Dashboard:', error);
+            console.error('Error iniciando el ETL:', error);
+            this._actualizandoETL = false;
+            this.refreshButton();
+            this.showAlert('No se pudo iniciar la actualización del Data Warehouse. Se muestran los últimos datos disponibles.', 'warning');
+            UI.showToast(etlDetalle(error) || 'No fue posible iniciar la actualización del Data Warehouse.', 'error');
+            return;
+        }
 
-            // El fallo del ETL no borra ni invalida el último DW disponible.
-            try {
-                await this.loadAllData(rango, false);
-            } catch (loadError) {
-                console.error('Error cargando los últimos datos del Dashboard:', loadError);
+        const clave = etlClave(inicio);
+        this._actualizandoETL = false;
+        if (!clave) {
+            this.refreshButton();
+            this.showAlert('El servidor no devolvió la clave de la ejecución ETL. Se muestran los últimos datos disponibles.', 'warning');
+            return;
+        }
+        await this.seguirETL(clave);
+    },
+
+    /**
+     * Consulta el estado cada 5 s sin iniciar nada. Si la interfaz deja de
+     * esperar (límite, fallos de red o salida del módulo), la ejecución no se da
+     * por fallida: sigue en Azure y el botón pasa a «Consultar estado».
+     */
+    async seguirETL(clave) {
+        if (this._actualizandoETL) return;
+        const seguimiento = this._seguimiento;
+        const vigente = () => seguimiento === this._seguimiento && document.getElementById('dashboard-alert');
+        this._actualizandoETL = true;
+        this._etlPendiente = clave;
+        this.refreshButton();
+
+        const inicio = Date.now();
+        let fallos = 0;
+        try {
+            while (Date.now() - inicio < ETL_ESPERA_MAXIMA_MS) {
+                if (!vigente()) return;
+
+                let ejecucion;
+                try {
+                    ejecucion = await DashboardService.getEstadoETLEjecucion(clave);
+                    fallos = 0;
+                } catch (error) {
+                    if (!vigente()) return;
+                    if (error?.status === 404) {
+                        this._etlPendiente = null;
+                        this.showAlert('No se encontró la ejecución ETL. Se muestran los últimos datos disponibles.', 'warning');
+                        return;
+                    }
+                    console.error('Error consultando el estado del ETL:', error);
+                    fallos += 1;
+                    if (fallos >= ETL_FALLOS_CONSULTA) {
+                        this.showAlert('No se pudo consultar el estado de la actualización. Puede seguir en ejecución en Azure: pulsa «Consultar estado» para volver a revisarla.', 'warning');
+                        return;
+                    }
+                    await esperar(ETL_INTERVALO_MS);
+                    continue;
+                }
+
+                if (!vigente()) return;
+                const estado = etlEstado(ejecucion);
+                if (!ETL_ACTIVOS.includes(estado)) {
+                    this._etlPendiente = null;
+                    await this.terminarETL(estado, ejecucion);
+                    return;
+                }
+
+                this.showAlert(this.mensajeProgresoETL(estado, ejecucion), 'info');
+                await esperar(ETL_INTERVALO_MS);
             }
 
-            this.showAlert(
-                'No se pudo actualizar el Data Warehouse. Se muestran los últimos datos disponibles.',
-                'warning'
-            );
-
-            if (manual) {
-                UI.showToast(
-                    error.message || 'No fue posible actualizar los datos del Dashboard.',
-                    'error'
-                );
+            if (vigente()) {
+                this.showAlert('La actualización sigue en ejecución en Azure. La pantalla dejó de esperarla; pulsa «Consultar estado» para revisar su progreso.', 'info');
             }
         } finally {
-            this._actualizandoETL = false;
-            this.setLoading(false);
+            if (seguimiento === this._seguimiento) {
+                this._actualizandoETL = false;
+                this.refreshButton();
+            }
         }
     },
 
-    async esperarETL(ejecucionKey) {
-        const intervaloMs = 2000;
-        const timeoutMs = 120000;
-        const inicio = Date.now();
+    mensajeProgresoETL(estado, ejecucion) {
+        const segundos = Number(ejecucion?.duracion_segundos);
+        const minutos = Number.isFinite(segundos) && segundos >= 60 ? ` · ${Math.floor(segundos / 60)} min` : '';
+        return estado === 'EN_PROCESO'
+            ? `Procesando el ETL en Azure… actualizando el Data Warehouse${minutos}.`
+            : `Actualización en cola en Azure, esperando su inicio${minutos}.`;
+    },
 
-        while (Date.now() - inicio < timeoutMs) {
-            const estado = await DashboardService.getEstadoETLEjecucion(ejecucionKey);
-            const estadoActual = String(estado?.estado ?? estado?.Estado ?? '').toUpperCase();
-
-            if (!['INICIADA', 'EN_PROCESO'].includes(estadoActual)) {
-                return estado;
-            }
-
-            this.showAlert(
-                estadoActual === 'EN_PROCESO'
-                    ? 'Procesando ETL… actualizando Data Warehouse.'
-                    : 'Iniciando actualización del Data Warehouse…',
-                'info'
-            );
-
-            await new Promise(resolve => setTimeout(resolve, intervaloMs));
+    async terminarETL(estado, ejecucion) {
+        const rango = document.getElementById('dash-filtro-tiempo')?.value || 'mes';
+        // Los datos del DW se recargan siempre: si el ETL falló, siguen los últimos disponibles.
+        try {
+            await this.loadAllData(rango, false);
+        } catch (error) {
+            console.error('Error cargando los datos del Dashboard:', error);
         }
 
-        throw new Error('La actualización del Data Warehouse superó el tiempo máximo de espera.');
+        if (estado === 'EXITOSA') {
+            UI.showToast('Data Warehouse actualizado correctamente', 'success');
+            return;
+        }
+        this.showAlert(
+            estado === 'SIN_CIERRE'
+                ? 'Azure terminó la ejecución, pero el ETL no registró su resultado. Se muestran los últimos datos disponibles.'
+                : 'La actualización del Data Warehouse terminó con errores. Se muestran los últimos datos disponibles.',
+            'warning'
+        );
+        UI.showToast(
+            ejecucion?.error || ejecucion?.mensaje || ejecucion?.Mensaje || `La ejecución ETL terminó con estado ${estado || 'DESCONOCIDO'}.`,
+            'error'
+        );
     },
 
     async loadAllData(rango, manual = false) {
@@ -218,12 +306,24 @@ export const DashboardController = {
     },
 
     setLoading(isLoading) {
+        this._cargando = isLoading;
+        this.refreshButton();
+    },
+
+    refreshButton() {
         const button = document.getElementById('dash-btn-recargar');
         if (!button) return;
-        button.disabled = isLoading;
-        button.innerHTML = isLoading
-            ? `<i class='bx bx-loader-alt bx-spin'></i><span>Actualizando…</span>`
-            : `<i class='bx bx-refresh'></i><span>Actualizar</span>`;
+        const ocupado = this._cargando || this._actualizandoETL;
+        button.disabled = ocupado;
+        if (ocupado) {
+            button.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i><span>Actualizando…</span>`;
+        } else if (this._etlPendiente) {
+            button.title = 'Consultar el progreso de la actualización en curso';
+            button.innerHTML = `<i class='bx bx-search-alt'></i><span>Consultar estado</span>`;
+        } else {
+            button.title = 'Actualizar indicadores';
+            button.innerHTML = `<i class='bx bx-refresh'></i><span>Actualizar</span>`;
+        }
     },
 
     showAlert(message, type = 'warning') {
