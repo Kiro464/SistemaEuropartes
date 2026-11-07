@@ -17,6 +17,15 @@ from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
 
+from apps.autoevaluacion.exportacion_dw import (
+    RepositorioStagingDW,
+    ServicioExportacionAutoevaluacionesDW,
+    TablaStagingNoExiste,
+)
+from apps.autoevaluacion.mongo import obtener_base_datos
+from apps.autoevaluacion.repositorio import Repositorio as RepositorioAutoevaluacion
+from apps.autoevaluacion.servicio import ServicioSincronizacionEmpleados
+
 from ..repositories.etl_repository import ESTADOS_ACTIVOS, ETLRepository
 from ..repositories.ssis_repository import SSISRepository
 from .adf_client import (
@@ -30,6 +39,18 @@ from .fechas_dw import a_local, dw_a_utc
 
 
 logger = logging.getLogger(__name__)
+
+
+def _sincronizar_empleados_mongo():
+    db = obtener_base_datos()
+    return ServicioSincronizacionEmpleados(RepositorioAutoevaluacion(db)).sincronizar()
+
+
+def _exportar_autoevaluaciones_dw():
+    db = obtener_base_datos()
+    return ServicioExportacionAutoevaluacionesDW(
+        RepositorioAutoevaluacion(db), RepositorioStagingDW()
+    ).exportar()
 
 PARAMETRO_CLAVE = "pEjecucionKey"
 
@@ -71,12 +92,17 @@ class ETLOrchestrationError(Exception):
 
 class ETLService:
 
-    def __init__(self, etl_repo=None, ssis_repo=None, adf=None):
+    def __init__(
+        self, etl_repo=None, ssis_repo=None, adf=None,
+        sincronizar_empleados=None, exportar_autoevaluaciones=None,
+    ):
         self.config = settings.AZURE_ETL
         self.etl_repo = etl_repo or ETLRepository()
         self.ssis_repo = ssis_repo or SSISRepository()
         self.usa_adf = self.config["ejecutor"] == "adf"
         self.adf = adf or (DataFactoryClient(self.config) if self.usa_adf else None)
+        self.sincronizar_empleados = sincronizar_empleados or _sincronizar_empleados_mongo
+        self.exportar_autoevaluaciones = exportar_autoevaluaciones or _exportar_autoevaluaciones_dw
 
     # ========================================================
     # Inicio
@@ -101,6 +127,7 @@ class ETLService:
                 )
 
             ejecucion_key = self.etl_repo.crear_ejecucion(MENSAJE_BACKEND)
+            self._preparar_autoevaluaciones(ejecucion_key)
             try:
                 run_id = self.adf.crear_run({PARAMETRO_CLAVE: ejecucion_key})
             except DataFactoryError:
@@ -135,6 +162,7 @@ class ETLService:
             )
 
         ejecucion_key = self.etl_repo.crear_ejecucion(MENSAJE_BACKEND)
+        self._preparar_autoevaluaciones(ejecucion_key)
 
         try:
             execution_id = self.ssis_repo.crear_ejecucion()
@@ -152,6 +180,20 @@ class ETLService:
             "ssis_execution_id": execution_id,
             "estado": "INICIADA",
         }
+
+    def _preparar_autoevaluaciones(self, ejecucion_key):
+        """Ejecuta el puente MongoDB→staging antes de iniciar el paquete maestro."""
+        try:
+            self.sincronizar_empleados()
+            self.exportar_autoevaluaciones()
+        except Exception as exc:
+            if isinstance(exc, TablaStagingNoExiste):
+                motivo = str(exc)
+            else:
+                motivo = f"Falló preparación de autoevaluaciones ({type(exc).__name__})"
+            self._cerrar(ejecucion_key, motivo)
+            logger.exception("El ETL no iniciará: %s", motivo)
+            raise ETLOrchestrationError(motivo, ejecucion={"ejecucion_key": ejecucion_key}) from exc
 
     # ========================================================
     # Consultas (nunca inician ejecuciones)

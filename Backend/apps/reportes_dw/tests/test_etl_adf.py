@@ -18,6 +18,7 @@ from apps.reportes_dw.repositories import etl_repository
 from apps.reportes_dw.services import adf_client, fechas_dw
 from apps.reportes_dw.services.adf_client import DataFactoryClient, DataFactoryError
 from apps.reportes_dw.services.etl_service import ETLService
+from apps.autoevaluacion.exportacion_dw import TablaStagingNoExiste
 
 
 User = get_user_model()
@@ -42,6 +43,7 @@ class FakeRepo:
         self.filas = {}
         self.siguiente = 100
         self.bloqueo_libre = True
+        self.eventos_bloqueo = []
         self.minutos = {}
 
     def agregar(self, estado="INICIADA", minutos=0, mensaje="Ejecución iniciada desde Django"):
@@ -95,7 +97,11 @@ class FakeRepo:
 
     @contextmanager
     def bloqueo_inicio(self, espera_ms=10000):
-        yield self.bloqueo_libre
+        self.eventos_bloqueo.append("adquirir")
+        try:
+            yield self.bloqueo_libre
+        finally:
+            self.eventos_bloqueo.append("liberar")
 
 
 class FakeADF:
@@ -150,7 +156,19 @@ class ETLServiceTests(SimpleTestCase):
     def setUp(self):
         self.repo = FakeRepo()
         self.adf = FakeADF()
-        self.service = ETLService(etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf)
+        self.pasos = []
+        self.service = ETLService(
+            etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf,
+            sincronizar_empleados=lambda: self.pasos.append("sincronizar"),
+            exportar_autoevaluaciones=lambda: self.pasos.append("exportar"),
+        )
+
+    def _servicio_con_puente(self, sincronizar, exportar):
+        return ETLService(
+            etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf,
+            sincronizar_empleados=sincronizar,
+            exportar_autoevaluaciones=exportar,
+        )
 
     def test_inicio_crea_fila_y_pasa_la_clave_al_pipeline(self):
         resultado = self.service.ejecutar_master()
@@ -159,6 +177,46 @@ class ETLServiceTests(SimpleTestCase):
         self.assertEqual(resultado["estado"], "INICIADA")
         self.assertEqual(self.adf.creados, [{"pEjecucionKey": resultado["ejecucion_key"]}])
         self.assertEqual(self.repo.filas[resultado["ejecucion_key"]]["Estado"], "INICIADA")
+
+    def test_preparacion_se_ejecuta_antes_de_adf_en_orden(self):
+        original = self.adf.crear_run
+        self.adf.crear_run = lambda parametros: (self.pasos.append("adf"), original(parametros))[1]
+
+        self.service.ejecutar_master()
+
+        self.assertEqual(self.pasos, ["sincronizar", "exportar", "adf"])
+
+    def test_fallo_sincronizacion_no_exporta_ni_inicia_adf_y_libera_bloqueo(self):
+        def falla_sincronizacion():
+            self.pasos.append("sincronizar")
+            raise RuntimeError("mongo no disponible")
+
+        servicio = self._servicio_con_puente(falla_sincronizacion, lambda: self.pasos.append("exportar"))
+        with self.assertRaises(Exception):
+            servicio.ejecutar_master()
+
+        self.assertEqual(self.pasos, ["sincronizar"])
+        self.assertEqual(self.adf.creados, [])
+        fila = next(iter(self.repo.filas.values()))
+        self.assertEqual(fila["Estado"], "FALLIDA")
+        self.assertIn("Falló preparación", fila["Mensaje"])
+        self.assertEqual(self.repo.eventos_bloqueo, ["adquirir", "liberar"])
+
+    def test_fallo_exportacion_no_inicia_adf_y_libera_bloqueo(self):
+        def falla_exportacion():
+            self.pasos.append("exportar")
+            raise TablaStagingNoExiste("Ejecute Backend/sql/dw/001_stg_autoevaluacion.sql")
+
+        servicio = self._servicio_con_puente(lambda: self.pasos.append("sincronizar"), falla_exportacion)
+        with self.assertRaises(Exception) as ctx:
+            servicio.ejecutar_master()
+
+        self.assertEqual(self.pasos, ["sincronizar", "exportar"])
+        self.assertEqual(self.adf.creados, [])
+        fila = next(iter(self.repo.filas.values()))
+        self.assertEqual(fila["Estado"], "FALLIDA")
+        self.assertIn("001_stg_autoevaluacion.sql", str(ctx.exception))
+        self.assertEqual(self.repo.eventos_bloqueo, ["adquirir", "liberar"])
 
     def test_no_inicia_si_hay_un_run_activo_en_azure(self):
         clave = self.repo.agregar()
@@ -170,6 +228,7 @@ class ETLServiceTests(SimpleTestCase):
         self.assertEqual(ctx.exception.ejecucion["run_id"], RUN_1)
         self.assertEqual(ctx.exception.ejecucion["estado"], "EN_PROCESO")
         self.assertEqual(self.adf.creados, [])
+        self.assertEqual(self.pasos, [])
 
     def test_no_inicia_si_el_run_activo_se_lanzo_desde_el_portal(self):
         # pEjecucionKey = 0: el paquete crea su propia fila.
@@ -185,6 +244,7 @@ class ETLServiceTests(SimpleTestCase):
         with self.assertRaises(Exception):
             self.service.ejecutar_master()
         self.assertEqual(self.repo.filas, {})
+        self.assertEqual(self.pasos, [])
 
     def test_fila_reciente_sin_run_bloquea(self):
         self.repo.agregar(minutos=5)
@@ -329,7 +389,10 @@ class EnlaceRunFilaTests(SimpleTestCase):
     def setUp(self):
         self.repo = FakeRepo()
         self.adf = FakeADF()
-        self.service = ETLService(etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf)
+        self.service = ETLService(
+            etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf,
+            sincronizar_empleados=lambda: None, exportar_autoevaluaciones=lambda: None,
+        )
 
     def test_run_antiguo_con_la_misma_clave_no_se_enlaza(self):
         clave = self.repo.agregar(minutos=5)
@@ -600,7 +663,10 @@ class ETLEndpointsTests(APITestCase):
         self.adf = FakeADF()
         parche = mock.patch(
             "apps.reportes_dw.views.ETLService",
-            side_effect=lambda: ETLService(etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf),
+            side_effect=lambda: ETLService(
+                etl_repo=self.repo, ssis_repo=mock.Mock(), adf=self.adf,
+                sincronizar_empleados=lambda: None, exportar_autoevaluaciones=lambda: None,
+            ),
         )
         parche.start()
         self.addCleanup(parche.stop)
