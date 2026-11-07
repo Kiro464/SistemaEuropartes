@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     'corsheaders',
     'apps.reportes_dw',
+    'apps.autoevaluacion',
 ] + SEGURIDAD_SETTING_APPS + CATALOGOS_SETTING_APPS + MOVIMIENTOS_SETTING_APPS
 
 MIDDLEWARE = [
@@ -323,6 +324,20 @@ DW_ZONA_HORARIA = os.getenv(
     "DW_ZONA_HORARIA",
     "UTC" if os.environ.get("WEBSITE_INSTANCE_ID") else "",
 ).strip() or None
+
+# ==========================================
+# MONGODB ATLAS (autoevaluación de vendedores)
+# ==========================================
+# La cadena de conexión incluye credenciales: solo se lee de la variable de
+# entorno MONGODB_URI (configuración del App Service), nunca del código.
+# Sin ella el módulo de autoevaluación queda deshabilitado y el resto sigue igual.
+
+MONGODB = {
+    "uri": os.getenv("MONGODB_URI", "").strip(),
+    "database": os.getenv("MONGODB_DB", "europartes_autoevaluacion").strip(),
+    # Tiempo máximo para encontrar el clúster; corto para no colgar peticiones.
+    "timeout_ms": int(os.getenv("MONGODB_TIMEOUT_MS", "5000")),
+}
 
 if AZURE_ETL["ejecutor"] not in ("adf", "ssisdb"):
     raise ImproperlyConfigured("ETL_EJECUTOR debe ser 'adf' o 'ssisdb'.")
