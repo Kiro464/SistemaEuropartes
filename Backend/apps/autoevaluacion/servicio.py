@@ -9,6 +9,12 @@ compara para detectar que cambió entre la consulta y el guardado.
 from . import cuestionario as reglas
 from . import periodos
 from .repositorio import EvaluacionDuplicada
+from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
+from django.contrib.auth.models import Group
+from django.utils import timezone
+from apps.catalogos.empleado.models import Empleado
+from apps.seguridad.usuarios.roles import rol_unico_usuario
 
 
 ROL_VENDEDOR = "Vendedor"
@@ -218,3 +224,42 @@ class ServicioAutoevaluacion:
 def _mismas_respuestas(guardadas, nuevas):
     clave = lambda lista: [(r["pregunta_id"], r["valor"]) for r in lista]  # noqa: E731
     return clave(guardadas) == clave(nuevas)
+
+
+class ServicioSincronizacionEmpleados:
+    """Replica perfiles vendedores desde AutoPartes a la colección empleados."""
+
+    def __init__(self, repositorio, reloj=timezone.now):
+        self.repo = repositorio
+        self.reloj = reloj
+
+    def sincronizar(self):
+        empleados = (Empleado.objects.using("default")
+                     .filter(estado=True, usuario__isnull=False, usuario__is_active=True)
+                     .select_related("usuario", "departamento")
+                     .prefetch_related(Prefetch("usuario__groups", queryset=Group.objects.only("id", "name")))
+                     .order_by("pk"))
+        perfiles = []
+        for empleado in empleados:
+            usuario = empleado.usuario
+            if rol_unico_usuario(usuario) != ROL_VENDEDOR:
+                continue
+            departamento = empleado.departamento
+            perfiles.append({
+                "_id": empleado.pk,
+                "empleado_id": empleado.pk,
+                "usuario_id": usuario.pk,
+                "username": usuario.username,
+                "django_username": usuario.username,
+                "nombres": empleado.nombres,
+                "apellidos": empleado.apellidos,
+                "cargo": empleado.cargo,
+                "departamento": departamento.nombre if departamento else "",
+                "departamento_id": departamento.pk if departamento else None,
+                "correo": empleado.correo or "",
+                "rol": ROL_VENDEDOR,
+                "activo": True,
+                "estado": "activo",
+            })
+        resultado = self.repo.sincronizar_empleados(perfiles, self.reloj())
+        return resultado

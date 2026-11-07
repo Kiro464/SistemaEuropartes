@@ -16,7 +16,7 @@ fecha_envio en las respuestas.
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from pymongo import DESCENDING, ReturnDocument
+from pymongo import DESCENDING, ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 from .indices import CUESTIONARIOS, EMPLEADOS, RESPUESTAS
@@ -78,6 +78,38 @@ class Repositorio:
             {"$set": cambios, "$setOnInsert": {"fecha_creacion": momento}},
             upsert=True,
         )
+
+    def sincronizar_empleados(self, perfiles, momento):
+        """Upsert perfiles en lote y desactiva vendedores ausentes sin borrarlos."""
+        empleados = self.db[EMPLEADOS]
+        ids_activos = [p["_id"] for p in perfiles]
+        # Libera usernames reasignados antes de aplicar los upserts individuales.
+        for perfil in perfiles:
+            username = perfil.get("username")
+            if username:
+                empleados.update_many(
+                    {"username": username, "_id": {"$ne": perfil["_id"]}},
+                    {"$unset": {"username": ""}, "$set": {"actualizado_en": momento}},
+                )
+        operaciones = []
+        for perfil in perfiles:
+            cambios = {k: v for k, v in perfil.items() if k != "_id"}
+            cambios.update({"actualizado_en": momento, "fecha_sincronizacion": momento})
+            operaciones.append(UpdateOne(
+                {"_id": perfil["_id"]},
+                {"$set": cambios, "$setOnInsert": {"fecha_creacion": momento}},
+                upsert=True,
+            ))
+        if operaciones:
+            empleados.bulk_write(operaciones, ordered=False)
+        filtro = {"rol": "Vendedor", "activo": True}
+        if ids_activos:
+            filtro["_id"] = {"$nin": ids_activos}
+        desactivar = empleados.update_many(filtro, {"$set": {
+            "activo": False, "estado": "inactivo", "fecha_sincronizacion": momento,
+            "actualizado_en": momento,
+        }})
+        return {"sincronizados": len(perfiles), "desactivados": desactivar.modified_count, "errores": 0}
 
     # ---------------- respuestas ----------------
 

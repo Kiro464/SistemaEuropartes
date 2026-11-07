@@ -31,6 +31,8 @@ def _coincide(doc, filtro):
                     return False
                 if operador == "$in" and valor not in referencia:
                     return False
+                if operador == "$nin" and valor in referencia:
+                    return False
         elif valor != condicion:
             return False
     return True
@@ -134,6 +136,25 @@ class FakeColeccion:
         for doc in afectados:
             self._reemplazar(doc, self._aplicar(doc, cambios))
         return _Resultado(modified_count=len(afectados))
+
+    def bulk_write(self, operaciones, ordered=False):
+        self._comprobar_disponible()
+        insertados = modificados = 0
+        for operacion in operaciones:
+            filtro = operacion._filter
+            cambios = operacion._doc
+            existente = next((d for d in self.docs if _coincide(d, filtro)), None)
+            if existente is not None:
+                self._reemplazar(existente, self._aplicar(existente, cambios))
+                modificados += 1
+            else:
+                base = {k: v for k, v in filtro.items() if not isinstance(v, dict)}
+                nuevo = self._aplicar(base, cambios, insertando=True)
+                nuevo.setdefault("_id", ObjectId())
+                self._comprobar_unicidad(nuevo)
+                self.docs.append(nuevo)
+                insertados += 1
+        return type("BulkResult", (), {"upserted_count": insertados, "modified_count": modificados})()
 
     def find_one_and_update(self, filtro, cambios, return_document=ReturnDocument.BEFORE):
         self._comprobar_disponible()
