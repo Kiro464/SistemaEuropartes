@@ -103,10 +103,11 @@ class OutboxPersistenceTest {
             old.version = 8
         }
 
-        // Room validates every table after running MIGRATION_8_9, so this fails if any is wrong.
+        // Room validates every table after running migrations 8→9 and 9→10.
         val migrated = database(name)
         assertTrue(migrated.pendingOperationDao().pending(7).isEmpty())
         assertEquals("p", migrated.offlineModuleSnapshotDao().find(7, "Vendedor", "r", "q")?.encryptedPayload)
+        assertNull(migrated.selfAssessmentDraftDao().find(7, "AUTOEV_VENDEDOR", 1, "2026-11"))
         migrated.close()
     }
 }

@@ -79,7 +79,13 @@ object DatabaseProvider {
         }
     }
 
-    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+    private val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS self_assessment_drafts (draftKey TEXT NOT NULL, ownerUserId INTEGER NOT NULL, questionnaireCode TEXT NOT NULL, questionnaireVersion INTEGER NOT NULL, period TEXT NOT NULL, encryptedPayload TEXT NOT NULL, updatedAtEpochMs INTEGER NOT NULL, PRIMARY KEY(draftKey))")
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_self_assessment_drafts_ownerUserId_questionnaireCode_questionnaireVersion_period ON self_assessment_drafts (ownerUserId, questionnaireCode, questionnaireVersion, period)")
+        }
+    }
+    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
 
     @Volatile private var instance: EuropartesDatabase? = null
 
