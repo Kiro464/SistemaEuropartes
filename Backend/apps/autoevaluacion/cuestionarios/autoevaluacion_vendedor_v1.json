@@ -1,0 +1,261 @@
+{
+    "codigo": "AUTOEV_VENDEDOR",
+    "version": 1,
+    "titulo": "Autoevaluación mensual del vendedor",
+    "descripcion": "Evalúa tu desempeño del mes: resultados de ventas, atención al cliente, conocimiento de repuestos, seguimiento, organización y trabajo en equipo. Responde con sinceridad; puedes corregir tus respuestas hasta el cierre del periodo.",
+    "estado": "publicado",
+    "periodicidad": "mensual",
+    "rol_destino": "Vendedor",
+    "vigente_desde": "2026-11",
+    "niveles": [
+        {"minimo": 85, "nombre": "Sobresaliente"},
+        {"minimo": 70, "nombre": "Satisfactorio"},
+        {"minimo": 55, "nombre": "En desarrollo"},
+        {"minimo": 0, "nombre": "Requiere mejora"}
+    ],
+    "categorias": [
+        {
+            "codigo": "VENTAS",
+            "nombre": "Cumplimiento de objetivos de ventas",
+            "peso": 25,
+            "preguntas": [
+                {
+                    "id": "V01",
+                    "texto": "¿Qué porcentaje de tu meta mensual de ventas alcanzaste?",
+                    "tipo": "opcion",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 3,
+                    "opciones": [
+                        {"valor": "MAS_100", "etiqueta": "100 % o más", "puntos": 100},
+                        {"valor": "90_99", "etiqueta": "Entre 90 % y 99 %", "puntos": 80},
+                        {"valor": "75_89", "etiqueta": "Entre 75 % y 89 %", "puntos": 55},
+                        {"valor": "50_74", "etiqueta": "Entre 50 % y 74 %", "puntos": 30},
+                        {"valor": "MENOS_50", "etiqueta": "Menos de 50 %", "puntos": 0}
+                    ]
+                },
+                {
+                    "id": "V02",
+                    "texto": "¿Cuál fue la causa principal de no alcanzar tu meta?",
+                    "tipo": "opcion",
+                    "obligatoria": true,
+                    "puntua": false,
+                    "mostrar_si": {"pregunta_id": "V01", "valores": ["75_89", "50_74", "MENOS_50"]},
+                    "opciones": [
+                        {"valor": "INVENTARIO", "etiqueta": "Faltaron repuestos en inventario"},
+                        {"valor": "PRECIOS", "etiqueta": "Los precios no fueron competitivos"},
+                        {"valor": "DEMANDA", "etiqueta": "Hubo poca demanda de clientes"},
+                        {"valor": "SEGUIMIENTO", "etiqueta": "Di poco seguimiento a las cotizaciones"},
+                        {"valor": "OTRA", "etiqueta": "Otra causa"}
+                    ]
+                },
+                {
+                    "id": "V03",
+                    "texto": "Describe las acciones concretas que tomarás el próximo mes para alcanzar tu meta.",
+                    "tipo": "texto",
+                    "obligatoria": true,
+                    "puntua": false,
+                    "mostrar_si": {"pregunta_id": "V01", "valores": ["50_74", "MENOS_50"]},
+                    "min_longitud": 10,
+                    "max_longitud": 500
+                },
+                {
+                    "id": "V04",
+                    "texto": "Ofrecí productos complementarios (filtros, aceites, bujías, kits) cuando la venta lo permitía.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                }
+            ]
+        },
+        {
+            "codigo": "ATENCION",
+            "nombre": "Atención y servicio al cliente",
+            "peso": 20,
+            "preguntas": [
+                {
+                    "id": "A01",
+                    "texto": "Atendí a cada cliente con amabilidad y sin hacerlo esperar más de lo necesario.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "A02",
+                    "texto": "Confirmé la marca, el modelo y el año del vehículo antes de ofrecer un repuesto.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "A03",
+                    "texto": "¿Recibiste reclamos o quejas de clientes este mes?",
+                    "tipo": "opcion",
+                    "obligatoria": true,
+                    "puntua": false,
+                    "opciones": [
+                        {"valor": "SI", "etiqueta": "Sí"},
+                        {"valor": "NO", "etiqueta": "No"}
+                    ]
+                },
+                {
+                    "id": "A04",
+                    "texto": "Di seguimiento a cada reclamo hasta resolverlo o escalarlo a mi supervisor.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "mostrar_si": {"pregunta_id": "A03", "valores": ["SI"]},
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                }
+            ]
+        },
+        {
+            "codigo": "PRODUCTO",
+            "nombre": "Conocimiento de productos y repuestos",
+            "peso": 15,
+            "preguntas": [
+                {
+                    "id": "P01",
+                    "texto": "Conozco las especificaciones y la compatibilidad de los repuestos que vendo.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Muy en desacuerdo", "2": "En desacuerdo", "3": "Ni de acuerdo ni en desacuerdo", "4": "De acuerdo", "5": "Muy de acuerdo"}}
+                },
+                {
+                    "id": "P02",
+                    "texto": "Verifiqué la existencia en inventario antes de comprometer una entrega con el cliente.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "P03",
+                    "texto": "¿Cuántas devoluciones o cambios hubo en tus ventas del mes por entregar un repuesto equivocado?",
+                    "tipo": "opcion",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "opciones": [
+                        {"valor": "NINGUNA", "etiqueta": "Ninguna", "puntos": 100},
+                        {"valor": "UNA", "etiqueta": "Una", "puntos": 70},
+                        {"valor": "DOS_TRES", "etiqueta": "Dos o tres", "puntos": 35},
+                        {"valor": "MAS_TRES", "etiqueta": "Más de tres", "puntos": 0}
+                    ]
+                }
+            ]
+        },
+        {
+            "codigo": "SEGUIMIENTO",
+            "nombre": "Seguimiento de clientes y oportunidades",
+            "peso": 15,
+            "preguntas": [
+                {
+                    "id": "S01",
+                    "texto": "¿Cuántos clientes nuevos registraste este mes?",
+                    "tipo": "numero",
+                    "obligatoria": true,
+                    "puntua": false,
+                    "minimo": 0,
+                    "maximo": 500,
+                    "entero": true
+                },
+                {
+                    "id": "S02",
+                    "texto": "Contacté a los clientes con cotizaciones pendientes para concretar la venta.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "S03",
+                    "texto": "Registré las solicitudes de repuestos sin existencia para que se gestionara su compra.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                }
+            ]
+        },
+        {
+            "codigo": "ORGANIZACION",
+            "nombre": "Organización y responsabilidad",
+            "peso": 15,
+            "preguntas": [
+                {
+                    "id": "O01",
+                    "texto": "Registré mis ventas y los datos de mis clientes de forma completa y correcta en el sistema.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "O02",
+                    "texto": "Cumplí con mi horario y con las tareas asignadas en el plazo acordado.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "O03",
+                    "texto": "Mantuve ordenados mi puesto de trabajo y la exhibición de productos.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                }
+            ]
+        },
+        {
+            "codigo": "EQUIPO",
+            "nombre": "Trabajo en equipo y mejora continua",
+            "peso": 10,
+            "preguntas": [
+                {
+                    "id": "E01",
+                    "texto": "Colaboré con mis compañeros y con las áreas de logística y compras cuando lo necesitaron.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "E02",
+                    "texto": "Apliqué la retroalimentación recibida o aprendí algo nuevo que mejoró mi trabajo.",
+                    "tipo": "escala",
+                    "obligatoria": true,
+                    "puntua": true,
+                    "peso": 1,
+                    "escala": {"minimo": 1, "maximo": 5, "etiquetas": {"1": "Nunca", "2": "Pocas veces", "3": "A veces", "4": "Casi siempre", "5": "Siempre"}}
+                },
+                {
+                    "id": "E03",
+                    "texto": "¿Qué capacitación o apoyo te ayudaría a mejorar el próximo mes?",
+                    "tipo": "texto",
+                    "obligatoria": false,
+                    "puntua": false,
+                    "max_longitud": 500
+                }
+            ]
+        }
+    ]
+}

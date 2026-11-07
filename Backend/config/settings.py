@@ -339,6 +339,15 @@ MONGODB = {
     "timeout_ms": int(os.getenv("MONGODB_TIMEOUT_MS", "5000")),
 }
 
+# Autoevaluación mensual: el periodo AAAA-MM se cierra el día N del mes
+# siguiente a las 23:59:59 (America/Managua). N = días de gracia.
+AUTOEVALUACION = {
+    "dias_gracia": int(os.getenv("AUTOEVALUACION_DIAS_GRACIA", "3")),
+}
+
+if not 0 <= AUTOEVALUACION["dias_gracia"] <= 27:
+    raise ImproperlyConfigured("AUTOEVALUACION_DIAS_GRACIA debe estar entre 0 y 27.")
+
 if AZURE_ETL["ejecutor"] not in ("adf", "ssisdb"):
     raise ImproperlyConfigured("ETL_EJECUTOR debe ser 'adf' o 'ssisdb'.")
 

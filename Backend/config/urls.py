@@ -56,4 +56,5 @@ urlpatterns = [
     path('movimientos/', include('apps.movimientos.urls')),
     path('reportes_dw/', include('apps.reportes_dw.urls')),
     path('api/etl/', include('apps.reportes_dw.etl_urls')),
+    path('autoevaluacion/', include('apps.autoevaluacion.urls')),
 ]
