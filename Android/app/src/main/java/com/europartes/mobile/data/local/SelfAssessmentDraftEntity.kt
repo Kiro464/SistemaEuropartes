@@ -61,6 +61,9 @@ interface SelfAssessmentDraftDao {
         period: String,
     ): Flow<SelfAssessmentDraftEntity?>
 
+    @Query("SELECT * FROM self_assessment_drafts WHERE ownerUserId = :ownerUserId ORDER BY updatedAtEpochMs DESC LIMIT 1")
+    suspend fun latestForOwner(ownerUserId: Int): SelfAssessmentDraftEntity?
+
     @Query(
         "DELETE FROM self_assessment_drafts WHERE ownerUserId = :ownerUserId " +
             "AND questionnaireCode = :questionnaireCode " +

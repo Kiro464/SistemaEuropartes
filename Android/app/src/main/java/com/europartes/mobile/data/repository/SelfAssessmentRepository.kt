@@ -103,6 +103,20 @@ class SelfAssessmentRepository(
                 ?.toDraft(scope)
         }
 
+    /** Used only when the server cannot be reached during startup. */
+    suspend fun loadLatestDraft(): Result<SelfAssessmentDraft?> = localCall {
+        val owner = requireNotNull(ownerUserId()) { "No hay una sesión local para recuperar un borrador." }
+        draftDao.latestForOwner(owner)?.let { row ->
+            val scope = SelfAssessmentDraftScope(
+                ownerUserId = row.ownerUserId,
+                questionnaireCode = row.questionnaireCode,
+                questionnaireVersion = row.questionnaireVersion,
+                period = row.period,
+            )
+            row.toDraft(scope)
+        }
+    }
+
     fun observeDraft(scope: SelfAssessmentDraftScope): Flow<Result<SelfAssessmentDraft?>> =
         draftDao.observe(scope.ownerUserId, scope.questionnaireCode, scope.questionnaireVersion, scope.period)
             .map { row ->

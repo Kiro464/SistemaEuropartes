@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Apartment
+import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -114,6 +115,8 @@ import com.europartes.mobile.ui.sales.SalesViewModel
 import com.europartes.mobile.ui.security.ChangeOwnPasswordScreen
 import com.europartes.mobile.ui.security.SecurityAdminScreen
 import com.europartes.mobile.ui.security.SecurityViewModel
+import com.europartes.mobile.ui.selfassessment.SelfAssessmentScreen
+import com.europartes.mobile.ui.selfassessment.SelfAssessmentViewModel
 import com.europartes.mobile.ui.sync.ConfigurationScreen
 import com.europartes.mobile.ui.sync.ConnectivityBanner
 import com.europartes.mobile.ui.sync.SyncScreen
@@ -126,6 +129,7 @@ import kotlinx.coroutines.launch
 private fun navigationIcon(destination: MobileDestination): ImageVector = when (destination) {
     MobileDestination.DASHBOARD -> Icons.Outlined.Dashboard
     MobileDestination.SALES -> Icons.Outlined.PointOfSale
+    MobileDestination.SELF_ASSESSMENT -> Icons.Outlined.Assignment
     MobileDestination.PRODUCTS, MobileDestination.LOCAL_DRAFTS -> Icons.Outlined.Inventory2
     MobileDestination.DISPATCHES -> Icons.Outlined.LocalShipping
     MobileDestination.PURCHASING -> Icons.Outlined.ShoppingCart
@@ -161,6 +165,7 @@ fun AuthenticatedShell(
     val salesViewModel: SalesViewModel = viewModel(key = "sales_user_${user.userId}")
     val securityViewModel: SecurityViewModel = viewModel(key = "security_user_${user.userId}")
     val dashboardViewModel: DashboardViewModel = viewModel(key = "dashboard_user_${user.userId}")
+    val selfAssessmentViewModel: SelfAssessmentViewModel = viewModel(key = "self_assessment_user_${user.userId}")
     val syncViewModel: SyncViewModel = viewModel(key = "sync_user_${user.userId}")
     val syncState by syncViewModel.state.collectAsState()
     val salesState by salesViewModel.state.collectAsState()
@@ -253,6 +258,7 @@ fun AuthenticatedShell(
                         salesViewModel = salesViewModel,
                         securityViewModel = securityViewModel,
                         dashboardViewModel = dashboardViewModel,
+                        selfAssessmentViewModel = selfAssessmentViewModel,
                         syncViewModel = syncViewModel,
                         isOnline = syncState.isOnline,
                         open = open,
@@ -282,6 +288,7 @@ private fun Destination(
     salesViewModel: SalesViewModel,
     securityViewModel: SecurityViewModel,
     dashboardViewModel: DashboardViewModel,
+    selfAssessmentViewModel: SelfAssessmentViewModel,
     syncViewModel: SyncViewModel,
     isOnline: Boolean,
     open: (MobileDestination) -> Unit,
@@ -296,6 +303,7 @@ private fun Destination(
         else -> when (target) {
             MobileDestination.DASHBOARD -> DashboardScreen(user.grupo, listOf(user.nombres, user.apellidos).filter(String::isNotBlank).joinToString(" ").ifBlank { user.username }, fill, dashboardViewModel)
             MobileDestination.SALES -> PointOfSaleScreen(user, salesViewModel, refreshProducts, fill)
+            MobileDestination.SELF_ASSESSMENT -> SelfAssessmentScreen(user.grupo, selfAssessmentViewModel, fill)
             MobileDestination.PRODUCTS -> ProductsRoute(user, productsViewModel, localProductsViewModel, onOpenLocalProducts = { open(MobileDestination.LOCAL_DRAFTS) }, fill)
             MobileDestination.LOCAL_DRAFTS -> LocalProductsRoute(user, localProductsViewModel, onBack = { open(MobileDestination.PRODUCTS) }, fill)
             MobileDestination.DISPATCHES -> DispatchesScreen(user.grupo, user.userId, salesViewModel, refreshProducts, fill)
