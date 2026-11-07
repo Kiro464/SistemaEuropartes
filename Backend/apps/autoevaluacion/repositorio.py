@@ -153,3 +153,10 @@ class Repositorio:
             .limit(limite)
         )
         return list(cursor)
+
+    def evaluaciones_completadas(self, periodo=None):
+        """Evaluaciones finales; el cierre se valida en el servicio de exportación."""
+        filtro = {"estado": "completada"}
+        if periodo is not None:
+            filtro["periodo"] = periodo
+        return list(self.db[RESPUESTAS].find(filtro))
