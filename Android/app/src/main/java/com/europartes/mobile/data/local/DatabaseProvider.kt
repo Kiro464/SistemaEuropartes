@@ -85,7 +85,14 @@ object DatabaseProvider {
             database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_self_assessment_drafts_ownerUserId_questionnaireCode_questionnaireVersion_period ON self_assessment_drafts (ownerUserId, questionnaireCode, questionnaireVersion, period)")
         }
     }
-    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+    private val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE self_assessment_drafts ADD COLUMN syncState TEXT NOT NULL DEFAULT 'DRAFT'")
+            database.execSQL("ALTER TABLE self_assessment_drafts ADD COLUMN lastSyncError TEXT")
+            database.execSQL("ALTER TABLE self_assessment_drafts ADD COLUMN sentAtEpochMs INTEGER")
+        }
+    }
+    private val allMigrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
 
     @Volatile private var instance: EuropartesDatabase? = null
 

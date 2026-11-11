@@ -30,7 +30,17 @@ data class SelfAssessmentDraftEntity(
     val period: String,
     val encryptedPayload: String,
     val updatedAtEpochMs: Long,
+    val syncState: String = SelfAssessmentSyncState.DRAFT,
+    val lastSyncError: String? = null,
+    val sentAtEpochMs: Long? = null,
 )
+
+object SelfAssessmentSyncState {
+    const val DRAFT = "DRAFT"
+    const val SENDING = "SENDING"
+    const val SENT = "SENT"
+    const val ERROR = "ERROR"
+}
 
 @Dao
 interface SelfAssessmentDraftDao {
@@ -63,6 +73,18 @@ interface SelfAssessmentDraftDao {
 
     @Query("SELECT * FROM self_assessment_drafts WHERE ownerUserId = :ownerUserId ORDER BY updatedAtEpochMs DESC LIMIT 1")
     suspend fun latestForOwner(ownerUserId: Int): SelfAssessmentDraftEntity?
+
+    @Query(
+        "UPDATE self_assessment_drafts SET syncState = :syncState, lastSyncError = :lastSyncError, " +
+            "sentAtEpochMs = :sentAtEpochMs, updatedAtEpochMs = :updatedAtEpochMs WHERE draftKey = :draftKey",
+    )
+    suspend fun updateSyncState(
+        draftKey: String,
+        syncState: String,
+        lastSyncError: String?,
+        sentAtEpochMs: Long?,
+        updatedAtEpochMs: Long,
+    )
 
     @Query(
         "DELETE FROM self_assessment_drafts WHERE ownerUserId = :ownerUserId " +

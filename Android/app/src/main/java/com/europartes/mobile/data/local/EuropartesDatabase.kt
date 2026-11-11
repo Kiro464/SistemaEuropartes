@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ProductEntity::class, SyncMetadataEntity::class, SyncOperationEntity::class, OfflineSnapshotEntity::class, OfflineCatalogRecordEntity::class, OfflineCatalogMetadataEntity::class, OfflineReportSnapshotEntity::class, OfflineReportNodeEntity::class, OfflineModuleSnapshotEntity::class, PendingOperationEntity::class, PendingIdMappingEntity::class, SelfAssessmentDraftEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class EuropartesDatabase : RoomDatabase() {

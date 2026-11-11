@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.europartes.mobile.data.local.DatabaseProvider
 import com.europartes.mobile.data.local.EuropartesDatabase
 import com.europartes.mobile.data.local.SelfAssessmentDraftEntity
+import com.europartes.mobile.data.local.SelfAssessmentSyncState
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -35,6 +36,21 @@ class SelfAssessmentDraftPersistenceTest {
         assertEquals("new", dao.latestForOwner(7)?.encryptedPayload)
         assertEquals("other-user", dao.latestForOwner(8)?.encryptedPayload)
         assertNull(dao.latestForOwner(9))
+        database.close()
+    }
+
+    @Test fun confirmedSubmissionStatePersistsWithoutRemovingTheEncryptedDraft() = runBlocking {
+        val database = database("self_assessment_submission_state_test.db")
+        val dao = database.selfAssessmentDraftDao()
+        val key = "7:AUTOEV_VENDEDOR:1:2026-11"
+        dao.save(SelfAssessmentDraftEntity(key, 7, "AUTOEV_VENDEDOR", 1, "2026-11", "encrypted", 10))
+
+        dao.updateSyncState(key, SelfAssessmentSyncState.SENT, null, 20L, 20L)
+        val saved = dao.find(7, "AUTOEV_VENDEDOR", 1, "2026-11")
+
+        assertEquals(SelfAssessmentSyncState.SENT, saved?.syncState)
+        assertEquals(20L, saved?.sentAtEpochMs)
+        assertEquals("encrypted", saved?.encryptedPayload)
         database.close()
     }
 }
