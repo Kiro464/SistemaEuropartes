@@ -752,3 +752,12 @@ input[type="radio"] { accent-color: var(--primary-color); }
     .sc-modal-backdrop:not([hidden]) .sc-purchase-modal, #global-loader { animation: none !important; }
     .modal-box, .toast, .btn, .dashboard-kpi, .product-summary-card { transition: none !important; }
 }
+
+/* TEMPORAL: exportación anticipada de autoevaluaciones (Soporte TI). */
+.config-export-slot { display: contents; }
+.config-note { margin: 4px 0 16px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+.config-export-result { margin-top: 18px; padding-top: 6px; border-top: 1px solid var(--border-color); }
+.config-export-rechazos { margin-top: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.config-export-rechazos summary { cursor: pointer; font-weight: 600; }
+.config-export-rechazos ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.config-export-rechazos code { font-size: 11.5px; overflow-wrap: anywhere; }

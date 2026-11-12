@@ -363,6 +363,11 @@ MONGODB = {
 # siguiente a las 23:59:59 (America/Managua). N = días de gracia.
 AUTOEVALUACION = {
     "dias_gracia": int(os.getenv("AUTOEVALUACION_DIAS_GRACIA", "3")),
+    # TEMPORAL (jornada de evaluación): Soporte TI puede exportar al DW un periodo
+    # todavía abierto desde la Web. Desactivada por defecto; retirar al terminar.
+    "exportacion_anticipada_habilitada": os.getenv(
+        "AUTOEVALUACION_EXPORTACION_ANTICIPADA_HABILITADA", "false"
+    ).strip().lower() in ("1", "true", "yes", "si", "sí"),
 }
 
 if not 0 <= AUTOEVALUACION["dias_gracia"] <= 27:

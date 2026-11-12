@@ -250,16 +250,27 @@ class ServicioExportacionAutoevaluacionesDW:
         self.repositorio_staging = repositorio_staging
         self.reloj = reloj
 
-    def exportar(self, periodo=None):
+    def exportar(self, periodo=None, permitir_periodo_abierto=False):
+        """Exporta las evaluaciones completadas de periodos cerrados.
+
+        `permitir_periodo_abierto` (exportación anticipada, temporal) exige un periodo y
+        solo omite la regla de periodo abierto; el resto de validaciones no cambia.
+        """
+        if permitir_periodo_abierto and periodo is None:
+            raise ValueError("La exportación anticipada requiere un periodo AAAA-MM.")
         if periodo is not None and not periodos.es_periodo(periodo):
             raise ValueError("El periodo debe tener formato AAAA-MM.")
         momento = self.reloj()
-        if periodo is not None and periodos.esta_abierto(periodo, momento):
+
+        def abierto(valor):
+            return not permitir_periodo_abierto and periodos.esta_abierto(valor, momento)
+
+        if periodo is not None and abierto(periodo):
             raise ValueError(f"El periodo {periodo} todavía está abierto y no se puede exportar.")
         documentos = self.repositorio_mongo.evaluaciones_completadas(periodo)
         # Un periodo inválido no se puede considerar abierto: se rechaza abajo como dato incompleto.
         cerrados = [d for d in documentos
-                    if not (periodos.es_periodo(d.get("periodo")) and periodos.esta_abierto(d["periodo"], momento))]
+                    if not (periodos.es_periodo(d.get("periodo")) and abierto(d["periodo"]))]
 
         rechazos = []
         validos = []
@@ -290,6 +301,7 @@ class ServicioExportacionAutoevaluacionesDW:
 
         resultado = self.repositorio_staging.exportar([self._normalizar(d, momento) for d in validos], hechos)
         return {
+            "encontradas": len(documentos),
             "procesadas": len(validos),
             "omitidas": len(documentos) - len(cerrados),
             "errores": len(rechazos),

@@ -123,6 +123,9 @@ export const ACTION_PERMISSIONS = Object.freeze({
     'departamento.editar': [ROLES.SOPORTE_TI],
     'departamento.eliminar': [ROLES.SOPORTE_TI],
     'departamento.gestionar': [ROLES.SOPORTE_TI],
+    // TEMPORAL (jornada de evaluación): además el backend exige la variable
+    // AUTOEVALUACION_EXPORTACION_ANTICIPADA_HABILITADA y vuelve a validar el rol.
+    'autoevaluacion.exportarAnticipada': [ROLES.SOPORTE_TI],
 
     // Ventas
     'venta.facturar': [ROLES.VENDEDOR],

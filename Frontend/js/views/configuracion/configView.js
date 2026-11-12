@@ -13,8 +13,66 @@ const passwordField = (id, label, autocomplete, hint = '') => `
         <p class="field-error" id="${id}-error" role="alert" hidden></p>
     </div>`;
 
+const RESULTADOS = {
+    EXITOSO: { label: 'Exitoso', badge: 'stock-ok' },
+    COMPLETADO_CON_RECHAZOS: { label: 'Completado con rechazos', badge: 'stock-critical' },
+    FALLIDO: { label: 'Fallido', badge: 'stock-out' }
+};
+
+const filaResultado = (label, value) => `<div><dt>${label}</dt><dd>${escapeHtml(String(value ?? '—'))}</dd></div>`;
+
 export const ConfigView = {
-    render({ user = {}, canChangePassword = false } = {}) {
+    /** TEMPORAL: tarjeta de exportación anticipada (Soporte TI con la función habilitada). */
+    renderExportacionAnticipada({ periodo = '' } = {}) {
+        return `
+            <div class="module-card config-card config-export">
+                <div class="config-card-head">
+                    <span class="config-icon is-accent"><i class='bx bx-export' aria-hidden="true"></i></span>
+                    <div><h3>Exportación anticipada de autoevaluaciones</h3><p>Temporal · Envía al DW un periodo aunque siga abierto.</p></div>
+                </div>
+                <form id="form-exportacion-anticipada" class="euro-form" novalidate>
+                    <div class="form-group">
+                        <label for="cfg_export_periodo">Periodo <span class="req">*</span></label>
+                        <input type="month" id="cfg_export_periodo" class="form-control" value="${escapeHtml(periodo)}" required>
+                    </div>
+                    <p class="config-note">Solo se exportan evaluaciones completadas de vendedores activos. No cierra el periodo ni modifica las evaluaciones; si se repite, una evaluación corregida actualiza su registro en el DW.</p>
+                    <div class="form-actions">
+                        <button type="submit" id="btn-exportacion-anticipada" class="btn btn-primary">
+                            <i class='bx bx-export' aria-hidden="true"></i> Exportar al DW
+                        </button>
+                    </div>
+                </form>
+                <div id="cfg-export-resultado" aria-live="polite"></div>
+            </div>`;
+    },
+
+    renderResultadoExportacion(data = {}) {
+        const resultado = RESULTADOS[data.resultado] || RESULTADOS.FALLIDO;
+        const filas = data.resultado === 'FALLIDO'
+            ? filaResultado('Detalle', data.detail || 'La exportación no se completó.')
+            : [
+                ['Evaluaciones encontradas', data.encontradas],
+                ['Procesadas', data.procesadas],
+                ['Omitidas', data.omitidas],
+                ['Insertadas', data.insertadas],
+                ['Actualizadas', data.actualizadas],
+                ['Errores', data.errores],
+                ['Hechos DW (nuevos / actualizados / sin cambios)',
+                    `${data.hechos_insertados ?? 0} / ${data.hechos_actualizados ?? 0} / ${data.hechos_sin_cambios ?? 0}`]
+            ].map(([label, value]) => filaResultado(label, value)).join('');
+        const rechazos = (data.rechazos || []).slice(0, 20).map(r =>
+            `<li><code>${escapeHtml(r.origen_evaluacion_id)}</code> · ${escapeHtml(r.motivo)}</li>`).join('');
+        return `
+            <dl class="config-identity config-export-result">
+                <div><dt>Resultado</dt><dd><span class="status-badge ${resultado.badge}">${resultado.label}</span></dd></div>
+                ${filaResultado('Periodo', data.periodo)}
+                ${filas}
+                ${data.auditoria_registrada === false ? filaResultado('Auditoría', 'Solo en el log del servidor') : ''}
+            </dl>
+            ${rechazos ? `<details class="config-export-rechazos"><summary>No cargadas (${data.rechazos.length})</summary><ul>${rechazos}</ul></details>` : ''}`;
+    },
+
+    render({ user = {}, canChangePassword = false, canExportAnticipada = false } = {}) {
         const name = [user.nombres, user.apellidos].filter(Boolean).join(' ').trim() || user.username || 'Usuario';
         return `
             <section class="dashboard-container config-page" aria-labelledby="config-title">
@@ -62,6 +120,8 @@ export const ConfigView = {
                             </div>
                         </form>
                     </div>` : ''}
+
+                    ${canExportAnticipada ? '<div id="cfg-exportacion-anticipada" class="config-export-slot"></div>' : ''}
 
                     <div class="module-card config-card">
                         <div class="config-card-head">

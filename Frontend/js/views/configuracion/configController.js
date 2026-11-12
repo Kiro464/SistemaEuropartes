@@ -14,6 +14,7 @@ const PASSWORD_FIELDS = {
 
 export const ConfigController = {
     _changingPassword: false,
+    _exportando: false,
 
     async init() {
         const root = document.getElementById('main-content');
@@ -21,11 +22,66 @@ export const ConfigController = {
 
         root.innerHTML = ConfigView.render({
             user: AuthService.getUser() || {},
-            canChangePassword: RBAC.can(AuthService.getRole(), 'cuenta.cambiarClave')
+            canChangePassword: RBAC.can(AuthService.getRole(), 'cuenta.cambiarClave'),
+            canExportAnticipada: RBAC.can(AuthService.getRole(), 'autoevaluacion.exportarAnticipada')
         });
 
         this.bindEvents(root);
+        this.loadExportacionAnticipada();
         await this.loadData();
+    },
+
+    /**
+     * TEMPORAL: la tarjeta solo aparece si el backend confirma que la función está
+     * habilitada para este usuario. Si responde 403 o falla, no se muestra nada.
+     */
+    async loadExportacionAnticipada() {
+        const slot = document.getElementById('cfg-exportacion-anticipada');
+        if (!slot) return;
+        let estado;
+        try {
+            estado = await ConfigService.getExportacionAnticipada();
+        } catch (err) {
+            return;
+        }
+        if (!estado?.habilitada || !slot.isConnected) return;
+        slot.innerHTML = ConfigView.renderExportacionAnticipada({ periodo: estado.periodo_sugerido });
+        const form = slot.querySelector('#form-exportacion-anticipada');
+        form?.addEventListener('submit', e => { e.preventDefault(); this.exportarAnticipada(form); });
+    },
+
+    async exportarAnticipada(form) {
+        if (this._exportando) return;
+        const input = form.querySelector('#cfg_export_periodo');
+        const periodo = input?.value || '';
+        if (!/^\d{4}-\d{2}$/.test(periodo)) { input?.reportValidity(); return; }
+        if (!confirm(`¿Exportar al DW las autoevaluaciones completadas del periodo ${periodo}?\n\n`
+            + 'El periodo puede seguir abierto: no se cerrará ni se modificarán las evaluaciones. '
+            + 'La ejecución quedará registrada en la auditoría con tu usuario.')) return;
+
+        const button = form.querySelector('#btn-exportacion-anticipada');
+        const salida = document.getElementById('cfg-export-resultado');
+        const idle = button?.innerHTML;
+        this._exportando = true;
+        if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.innerHTML = `<i class='bx bx-loader-alt bx-spin' aria-hidden="true"></i> Exportando…`; }
+
+        try {
+            const data = await ConfigService.ejecutarExportacionAnticipada(periodo);
+            if (salida?.isConnected) salida.innerHTML = ConfigView.renderResultadoExportacion(data);
+            UI.showToast(data.resultado === 'EXITOSO'
+                ? 'Exportación anticipada completada.'
+                : 'Exportación completada con evaluaciones no cargadas.', data.resultado === 'EXITOSO' ? 'success' : 'warning');
+        } catch (error) {
+            // 400/503 traen un detalle seguro redactado por el backend; el resto usa el mensaje genérico.
+            const detail = [400, 503].includes(error?.status) && typeof error?.data?.detail === 'string'
+                ? error.data.detail
+                : getErrorMessage(error, 'No fue posible ejecutar la exportación anticipada.');
+            if (salida?.isConnected) salida.innerHTML = ConfigView.renderResultadoExportacion({ periodo, resultado: 'FALLIDO', detail });
+            UI.showToast(detail, 'error');
+        } finally {
+            this._exportando = false;
+            if (button?.isConnected) { button.disabled = false; button.removeAttribute('aria-busy'); button.innerHTML = idle; }
+        }
     },
 
     async loadData() {

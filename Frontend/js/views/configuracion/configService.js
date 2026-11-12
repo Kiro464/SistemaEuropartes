@@ -24,6 +24,16 @@ export const ConfigService = {
         return response;
     },
 
+    /** TEMPORAL: estado de la exportación anticipada (solo Soporte TI). */
+    async getExportacionAnticipada() {
+        return await ApiService.get('/autoevaluacion/exportacion-anticipada/');
+    },
+
+    /** TEMPORAL: exporta al DW las autoevaluaciones completadas de un periodo abierto. */
+    async ejecutarExportacionAnticipada(periodo) {
+        return await ApiService.post('/autoevaluacion/exportacion-anticipada/', { periodo });
+    },
+
     /**
      * Obtiene la información de la empresa desde el LocalStorage.
      * Si no existe, retorna datos por defecto funcionales para la demo.
