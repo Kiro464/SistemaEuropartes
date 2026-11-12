@@ -243,3 +243,36 @@ body { line-height: 1.5; }
     .btn, .btn-icon, .user-menu-trigger, .topbar-chip, .nav-link, .user-menu-panel, .modal-box, .toast,
     .dashboard-kpi, .product-summary-card { transition-duration: 1ms !important; transform: none !important; }
 }
+
+/* ===== Desempeño de vendedores ===== */
+.seller-filters { display: grid; grid-template-columns: repeat(2, minmax(150px, 180px)) minmax(200px, 1fr) auto; align-items: end; gap: 12px 14px; margin-bottom: 16px; }
+.seller-filter-field { display: grid; gap: 6px; min-width: 0; }
+.seller-filter-field label { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
+.seller-filter-field .form-control { width: 100%; min-width: 0; }
+.seller-filter-actions { display: flex; gap: 8px; }
+.seller-filter-hint { grid-column: 1 / -1; color: var(--text-secondary); font-size: 12px; }
+.seller-kpi-grid { margin-bottom: 16px; }
+.seller-table td, .seller-months-table td { vertical-align: middle; }
+.seller-table .num, .seller-months-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.seller-table tr.is-selected td { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
+.seller-table tr.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--primary-color); }
+.seller-name { font-weight: 600; }
+.seller-muted { color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.seller-level { background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); white-space: nowrap; }
+.seller-categories { display: grid; gap: 14px; }
+.seller-categories .metric-bar-top span { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+@media (min-width: 1101px) {
+    .seller-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+    .seller-kpi-grid .dashboard-kpi:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+    .seller-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .seller-filter-wide, .seller-filter-actions { grid-column: 1 / -1; }
+    .seller-filter-actions .btn { flex: 1; }
+}
+@media (max-width: 520px) {
+    .seller-kpi-grid .dashboard-kpi:nth-child(4) { border-bottom: 1px solid var(--border-color); }
+    .seller-kpi-grid .dashboard-kpi:last-child { border-right: 0; }
+}

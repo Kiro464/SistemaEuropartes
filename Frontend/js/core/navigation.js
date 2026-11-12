@@ -14,7 +14,8 @@ export const NAVIGATION = Object.freeze([
         label: 'Principal',
         items: [
             { route: '#/dashboard', label: 'Dashboard', icon: 'bx-grid-alt' },
-            { route: '#/resumen-ejecutivo', label: 'Resumen ejecutivo', icon: 'bx-line-chart' }
+            { route: '#/resumen-ejecutivo', label: 'Resumen ejecutivo', icon: 'bx-line-chart' },
+            { route: '#/desempeno-vendedores', label: 'Desempeño de vendedores', icon: 'bx-medal' }
         ]
     },
     {

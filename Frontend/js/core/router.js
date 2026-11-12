@@ -60,6 +60,10 @@ const routes = {
         import('../views/resumenEjecutivo/resumenEjecutivoController.js')
             .then(m => m.ResumenEjecutivoController.init()),
 
+    '#/desempeno-vendedores': () =>
+        import('../views/desempenoVendedores/desempenoVendedoresController.js')
+            .then(m => m.DesempenoVendedoresController.init()),
+
     '#/productos': () =>
         import('../views/productos/productosController.js')
             .then(m => m.ProductosController.init()),

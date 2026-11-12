@@ -15,6 +15,7 @@ enum class NavigationSection(val label: String) {
 enum class MobileDestination(val label: String, val section: NavigationSection) {
     DASHBOARD("Dashboard", NavigationSection.PRINCIPAL),
     EXECUTIVE_SUMMARY("Resumen ejecutivo", NavigationSection.PRINCIPAL),
+    SELLER_PERFORMANCE("Desempeño de vendedores", NavigationSection.PRINCIPAL),
     SALES("Ventas", NavigationSection.OPERATIONS),
     SELF_ASSESSMENT("Autoevaluación", NavigationSection.OPERATIONS),
     PRODUCTS("Productos e inventario", NavigationSection.OPERATIONS),
@@ -68,6 +69,7 @@ fun navigationForRole(role: String): List<NavigationItem> = buildList {
     fun add(destination: MobileDestination) = add(NavigationItem(destination, destination.label))
     if (role in DASHBOARD_ROLES) add(MobileDestination.DASHBOARD)
     if (role in DASHBOARD_ROLES) add(MobileDestination.EXECUTIVE_SUMMARY)
+    if (role in DASHBOARD_ROLES) add(MobileDestination.SELLER_PERFORMANCE)
     if (role == EuropartesRoles.VENDEDOR) add(MobileDestination.SALES)
     if (role == EuropartesRoles.VENDEDOR) add(MobileDestination.SELF_ASSESSMENT)
     if (role in EuropartesRoles.canReadProducts) add(MobileDestination.PRODUCTS)

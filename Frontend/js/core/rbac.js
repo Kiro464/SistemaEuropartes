@@ -33,6 +33,12 @@ export const ROUTE_PERMISSIONS = Object.freeze({
         ROLES.ASESOR_FINANCIERO,
         ROLES.COORDINADOR_LOGISTICA
     ],
+    // Mismos roles que el endpoint (PuedeConsultarDashboard en el backend).
+    '#/desempeno-vendedores': [
+        ROLES.ADMINISTRADOR_GENERAL,
+        ROLES.ASESOR_FINANCIERO,
+        ROLES.COORDINADOR_LOGISTICA
+    ],
     '#/ventas': [ROLES.VENDEDOR],
     // El módulo combina solicitudes (Vendedor/Coordinador) y órdenes de compra
     // (AG/AF/Coordinador/Oficial); las acciones internas siguen filtradas por RBAC.

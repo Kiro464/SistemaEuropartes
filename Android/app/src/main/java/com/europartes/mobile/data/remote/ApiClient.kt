@@ -49,6 +49,9 @@ object ApiClient {
     fun executiveSummaryApi(tokenStore: TokenStore): ExecutiveSummaryApi =
         retrofit(authenticatedClient(tokenStore)).create(ExecutiveSummaryApi::class.java)
 
+    fun sellerPerformanceApi(tokenStore: TokenStore): SellerPerformanceApi =
+        retrofit(authenticatedClient(tokenStore)).create(SellerPerformanceApi::class.java)
+
     fun selfAssessmentApi(tokenStore: TokenStore): SelfAssessmentApi =
         retrofit(authenticatedClient(tokenStore)).create(SelfAssessmentApi::class.java)
 
