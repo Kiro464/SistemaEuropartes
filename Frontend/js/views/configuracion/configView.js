@@ -61,7 +61,7 @@ export const ConfigView = {
                     `${data.hechos_insertados ?? 0} / ${data.hechos_actualizados ?? 0} / ${data.hechos_sin_cambios ?? 0}`]
             ].map(([label, value]) => filaResultado(label, value)).join('');
         const rechazos = (data.rechazos || []).slice(0, 20).map(r =>
-            `<li><code>${escapeHtml(r.origen_evaluacion_id)}</code> · ${escapeHtml(r.motivo)}</li>`).join('');
+            `<li><code>${escapeHtml(r.origen_evaluacion_id)}</code> · ${escapeHtml(r.motivo)}${r.campos?.length ? ` (${escapeHtml(r.campos.join(', '))})` : ''}</li>`).join('');
         return `
             <dl class="config-identity config-export-result">
                 <div><dt>Resultado</dt><dd><span class="status-badge ${resultado.badge}">${resultado.label}</span></dd></div>

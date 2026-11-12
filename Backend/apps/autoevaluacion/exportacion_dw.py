@@ -333,8 +333,8 @@ class ServicioExportacionAutoevaluacionesDW:
                 _fecha_sql(documento.get("actualizado_en")), _fecha_sql(cargado_en),
             ),
             "categorias": [
-                (*clave, str(categoria), puntaje, pesos.get(str(categoria)))
-                for categoria, puntaje in documento["puntaje_por_categoria"].items()
+                (*clave, codigo_categoria, puntaje, pesos.get(codigo_categoria) if peso is None else peso)
+                for codigo_categoria, puntaje, peso in categorias_puntuadas(documento)
             ],
         }
 
@@ -349,8 +349,8 @@ class ServicioExportacionAutoevaluacionesDW:
             numero = valor if isinstance(valor, (int, float)) and not isinstance(valor, bool) else None
             respuestas.append((origen, respuesta["pregunta_id"], texto, numero, tipo))
         categorias = [
-            (origen, str(categoria), puntaje)
-            for categoria, puntaje in documento.get("puntaje_por_categoria", {}).items()
+            (origen, codigo_categoria, puntaje)
+            for codigo_categoria, puntaje, _peso in categorias_puntuadas(documento)
         ]
         return {
             "origen_evaluacion_id": origen,
@@ -378,9 +378,36 @@ def _texto(valor):
     return isinstance(valor, str) and bool(valor.strip())
 
 
+def categorias_puntuadas(documento):
+    """[(codigo, puntaje, peso)] de las categorías con puntaje, o None si el campo no es válido.
+
+    El Backend guarda `puntaje_por_categoria` como lista
+    [{codigo, nombre, peso, puntaje}] (cuestionario.calcular_resumen). Una categoría sin
+    preguntas puntuadas tiene puntaje None: no tiene valor que cargar y se omite.
+    También se acepta la forma {codigo: puntaje} (peso tomado del cuestionario).
+    """
+    categorias = documento.get("puntaje_por_categoria")
+    if isinstance(categorias, dict):
+        elementos = [{"codigo": codigo, "puntaje": puntaje} for codigo, puntaje in categorias.items()]
+    elif isinstance(categorias, list):
+        elementos = categorias
+    else:
+        return None
+    resultado = []
+    for item in elementos:
+        if not (isinstance(item, dict) and _texto(str(item.get("codigo") or ""))):
+            return None
+        puntaje, peso = item.get("puntaje"), item.get("peso")
+        if puntaje is None:
+            continue
+        if not _numero(puntaje) or not (peso is None or _numero(peso)):
+            return None
+        resultado.append((str(item["codigo"]), puntaje, peso))
+    return resultado or None
+
+
 def campos_faltantes(documento):
     """Campos obligatorios ausentes o inválidos para cargar la evaluación (solo nombres de campo)."""
-    categorias = documento.get("puntaje_por_categoria")
     respuestas = documento.get("respuestas")
     reglas = {
         "_id": documento.get("_id") is not None,
@@ -392,8 +419,7 @@ def campos_faltantes(documento):
         "version": _entero(documento.get("version")),
         "puntaje_total": _numero(documento.get("puntaje_total")),
         "nivel": _texto(documento.get("nivel")),
-        "puntaje_por_categoria": isinstance(categorias, dict) and bool(categorias)
-                                 and all(_numero(v) for v in categorias.values()),
+        "puntaje_por_categoria": categorias_puntuadas(documento) is not None,
         "respuestas": isinstance(respuestas, list)
                       and all(isinstance(r, dict) and "pregunta_id" in r and "valor" in r for r in respuestas),
     }

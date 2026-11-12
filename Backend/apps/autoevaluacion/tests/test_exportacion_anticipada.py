@@ -18,7 +18,7 @@ from django.test import override_settings
 from pymongo.errors import ServerSelectionTimeoutError
 from rest_framework.test import APITestCase
 
-from apps.autoevaluacion import exportacion_anticipada
+from apps.autoevaluacion import cuestionario as reglas, exportacion_anticipada
 from apps.autoevaluacion.exportacion_anticipada import COLECCION_AUDITORIA, RepositorioAuditoria
 from apps.autoevaluacion.exportacion_dw import (
     MOTIVO_DATOS_INCOMPLETOS,
@@ -30,6 +30,7 @@ from apps.autoevaluacion.repositorio import Repositorio
 
 from .fakes import FakeMongoDB
 from .test_hechos_autoevaluacion import _DWMemoria
+from .utilidades import PUNTAJE_ESPERADO, cargar_v1, respuestas_validas
 
 
 User = get_user_model()
@@ -40,8 +41,7 @@ DESHABILITADA = {"dias_gracia": 3, "exportacion_anticipada_habilitada": False}
 CLAVE = (21, "AUTOEV_VENDEDOR", "2026-11")
 
 
-@override_settings(TIME_ZONE="America/Managua", AUTOEVALUACION=HABILITADA)
-class ExportacionAnticipadaTests(APITestCase):
+class _BaseExportacionAnticipada(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
@@ -101,6 +101,11 @@ class ExportacionAnticipadaTests(APITestCase):
     @property
     def auditorias(self):
         return self.mongo[COLECCION_AUDITORIA].docs
+
+
+
+@override_settings(TIME_ZONE="America/Managua", AUTOEVALUACION=HABILITADA)
+class ExportacionAnticipadaTests(_BaseExportacionAnticipada):
 
     # --- Permisos y variable de entorno ---
 
@@ -178,7 +183,7 @@ class ExportacionAnticipadaTests(APITestCase):
         datos = self.exportar().data
 
         self.assertEqual((datos["encontradas"], datos["procesadas"], datos["errores"]), (1, 0, 1))
-        self.assertEqual(datos["rechazos"], [{"origen_evaluacion_id": str(sin_puntaje["_id"]),
+        self.assertEqual(datos["rechazos"], [{"origen_evaluacion_id": str(sin_puntaje["_id"]), "campos": ["puntaje_total"],
                                               "motivo": MOTIVO_DATOS_INCOMPLETOS}])
         self.assertEqual(datos["resultado"], "COMPLETADO_CON_RECHAZOS")
         self.assertEqual((self.dw.hechos, self.dw.stg), ({}, {}))
@@ -190,7 +195,7 @@ class ExportacionAnticipadaTests(APITestCase):
         datos = self.exportar().data
 
         self.assertEqual(list(self.dw.hechos), [CLAVE])
-        self.assertEqual(datos["rechazos"], [{"origen_evaluacion_id": str(inactivo["_id"]),
+        self.assertEqual(datos["rechazos"], [{"origen_evaluacion_id": str(inactivo["_id"]), "campos": [],
                                               "motivo": MOTIVO_NO_ELEGIBLE}])
 
     def test_segunda_ejecucion_no_duplica(self):
@@ -274,3 +279,52 @@ class ExportacionAnticipadaTests(APITestCase):
         self.assertFalse(respuesta.data["auditoria_registrada"])
         self.assertTrue(any("AUDITORIA EXPORTACION_ANTICIPADA_DW usuario=soporte1 periodo=2026-11" in l
                             for l in logs.output))
+
+
+@override_settings(TIME_ZONE="America/Managua", AUTOEVALUACION=HABILITADA)
+class DocumentoRealTests(_BaseExportacionAnticipada):
+    """Regresión: el documento con la forma que guarda el Backend (puntaje_por_categoria
+    como lista de {codigo, nombre, peso, puntaje}) se rechazaba como DATOS_INCOMPLETOS."""
+
+    def documento_real(self, **cambios_respuestas):
+        self.mongo["cuestionarios"].docs.clear()  # usa el cuestionario v1 real, no el de ejemplo
+        cuestionario_id = cargar_v1(self.mongo)
+        cuestionario = Repositorio(self.mongo).cuestionario_por_id(cuestionario_id)
+        respuestas, resumen = reglas.evaluar(cuestionario, respuestas_validas(**cambios_respuestas))
+        return self.evaluacion(cuestionario_id=str(cuestionario_id), cuestionario_codigo=cuestionario["codigo"],
+                               cuestionario_version=cuestionario["version"], respuestas=respuestas, **resumen)
+
+    def test_documento_guardado_por_el_backend_se_exporta(self):
+        doc = self.documento_real()
+        self.assertIsInstance(doc["puntaje_por_categoria"], list)
+
+        datos = self.exportar().data
+
+        self.assertEqual((datos["resultado"], datos["procesadas"], datos["errores"], datos["hechos_insertados"]),
+                         ("EXITOSO", 1, 0, 1), datos["rechazos"])
+        clave = (21, doc["cuestionario_codigo"], "2026-11")
+        self.assertEqual(self.dw.hechos[clave]["PuntajeTotal"], PUNTAJE_ESPERADO)
+        categorias = {k[3]: v for k, v in self.dw.categorias.items() if k[:3] == clave}
+        esperadas = {c["codigo"]: (c["puntaje"], c["peso"]) for c in doc["puntaje_por_categoria"]}
+        self.assertEqual(categorias, esperadas)
+        self.assertEqual(len(categorias), 6)
+
+    def test_categoria_sin_puntaje_se_omite_sin_rechazar(self):
+        doc = self.documento_real()
+        doc["puntaje_por_categoria"][0]["puntaje"] = None
+        omitida = doc["puntaje_por_categoria"][0]["codigo"]
+
+        datos = self.exportar().data
+
+        self.assertEqual((datos["procesadas"], datos["errores"]), (1, 0))
+        self.assertNotIn(omitida, {k[3] for k in self.dw.categorias})
+        self.assertEqual(len(self.dw.categorias), 5)
+
+    def test_categoria_con_puntaje_invalido_informa_el_campo(self):
+        doc = self.documento_real()
+        doc["puntaje_por_categoria"][0]["puntaje"] = "alto"
+
+        datos = self.exportar().data
+
+        self.assertEqual(datos["rechazos"][0]["campos"], ["puntaje_por_categoria"])
+        self.assertEqual(self.dw.hechos, {})

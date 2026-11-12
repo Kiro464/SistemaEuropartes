@@ -172,7 +172,8 @@ class ExportacionAnticipadaView(APIView):
             "resultado": general,
             **resumen,
             # Solo id del documento y motivo: sin respuestas ni datos personales.
-            "rechazos": [{"origen_evaluacion_id": r["origen_evaluacion_id"], "motivo": r["motivo"]}
+            "rechazos": [{"origen_evaluacion_id": r["origen_evaluacion_id"], "motivo": r["motivo"],
+                          "campos": r.get("campos", [])}
                          for r in resultado.get("rechazos", [])],
             "ejecutado_en": momento.isoformat(timespec="seconds"),
             "auditoria_registrada": auditada,
