@@ -186,6 +186,26 @@ if os.environ.get("WEBSITE_INSTANCE_ID"):
         DATABASES[alias].pop("USER", None)
         DATABASES[alias].pop("PASSWORD", None)
 
+# ============================================================
+# AZURE SYNAPSE ANALYTICS (SQL Serverless) - OPCIONAL
+# ============================================================
+# Alias independiente de default, dw y ssis; solo se crea si existe
+# SYNAPSE_SQL_HOST. Ver config/synapse.py.
+
+from config.synapse import configuracion_synapse, fuente_resumen  # noqa: E402
+
+_synapse = configuracion_synapse(os.environ)
+if _synapse is not None:
+    DATABASES["synapse"] = _synapse
+
+DATABASE_ROUTERS = ["config.synapse.SynapseRouter"]
+
+# Fuente del Resumen Ejecutivo: "dw" (por defecto) o "synapse".
+try:
+    RESUMEN_FUENTE = fuente_resumen(os.environ)
+except ValueError as exc:
+    raise ImproperlyConfigured(str(exc)) from exc
+
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 

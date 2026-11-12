@@ -56,6 +56,10 @@ const routes = {
         import('../views/dashboard/dashboardController.js')
             .then(m => m.DashboardController.init()),
 
+    '#/resumen-ejecutivo': () =>
+        import('../views/resumenEjecutivo/resumenEjecutivoController.js')
+            .then(m => m.ResumenEjecutivoController.init()),
+
     '#/productos': () =>
         import('../views/productos/productosController.js')
             .then(m => m.ProductosController.init()),

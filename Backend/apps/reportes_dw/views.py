@@ -10,6 +10,7 @@ from .services.etl_service import (
     ETLOrchestrationError,
 )
 from .services.dashboard_service import DashboardService
+from .repositories.synapse_resumen_repository import SynapseNoDisponible
 from .services.ventas_service import VentasService
 from .services.compras_service import ComprasService
 from .services.solicitudes_service import SolicitudesService
@@ -35,7 +36,11 @@ class ResumenEjecutivoView(APIView):
     permission_classes = [PuedeConsultarDashboard]
 
     def get(self, request):
-        return Response(_dashboard.resumen(request.query_params))
+        try:
+            return Response(_dashboard.resumen(request.query_params))
+        except SynapseNoDisponible as exc:
+            # Mensaje genérico: nunca host, cadena de conexión ni texto del driver.
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 class VentasTotalView(APIView):

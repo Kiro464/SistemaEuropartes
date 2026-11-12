@@ -30,6 +30,19 @@ class DashboardRepository:
         )
 
     @staticmethod
+    def ventas_mensuales(queryset):
+        """Total de ventas por año y mes de la fecha de venta (DimTiempo)."""
+        filas = (
+            queryset.values("fecha_venta__anio", "fecha_venta__mes")
+            .annotate(total=Sum("total"))
+            .order_by("fecha_venta__anio", "fecha_venta__mes")
+        )
+        return [
+            {"anio": int(f["fecha_venta__anio"]), "mes": int(f["fecha_venta__mes"]), "total": f["total"]}
+            for f in filas
+        ]
+
+    @staticmethod
     def cantidad_operaciones(queryset, campo):
         return queryset.values(campo).distinct().count()
 

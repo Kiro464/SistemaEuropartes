@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Apartment
 import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -115,6 +116,7 @@ import com.europartes.mobile.ui.sales.SalesViewModel
 import com.europartes.mobile.ui.security.ChangeOwnPasswordScreen
 import com.europartes.mobile.ui.security.SecurityAdminScreen
 import com.europartes.mobile.ui.security.SecurityViewModel
+import com.europartes.mobile.ui.executivesummary.ExecutiveSummaryScreen
 import com.europartes.mobile.ui.selfassessment.SelfAssessmentScreen
 import com.europartes.mobile.ui.selfassessment.SelfAssessmentViewModel
 import com.europartes.mobile.ui.sync.ConfigurationScreen
@@ -130,6 +132,7 @@ private fun navigationIcon(destination: MobileDestination): ImageVector = when (
     MobileDestination.DASHBOARD -> Icons.Outlined.Dashboard
     MobileDestination.SALES -> Icons.Outlined.PointOfSale
     MobileDestination.SELF_ASSESSMENT -> Icons.Outlined.Assignment
+    MobileDestination.EXECUTIVE_SUMMARY -> Icons.Outlined.ShowChart
     MobileDestination.PRODUCTS, MobileDestination.LOCAL_DRAFTS -> Icons.Outlined.Inventory2
     MobileDestination.DISPATCHES -> Icons.Outlined.LocalShipping
     MobileDestination.PURCHASING -> Icons.Outlined.ShoppingCart
@@ -304,6 +307,7 @@ private fun Destination(
             MobileDestination.DASHBOARD -> DashboardScreen(user.grupo, listOf(user.nombres, user.apellidos).filter(String::isNotBlank).joinToString(" ").ifBlank { user.username }, fill, dashboardViewModel)
             MobileDestination.SALES -> PointOfSaleScreen(user, salesViewModel, refreshProducts, fill)
             MobileDestination.SELF_ASSESSMENT -> SelfAssessmentScreen(user.grupo, selfAssessmentViewModel, fill)
+            MobileDestination.EXECUTIVE_SUMMARY -> ExecutiveSummaryScreen(viewModel(key = "executive_summary_user_${user.userId}"), fill)
             MobileDestination.PRODUCTS -> ProductsRoute(user, productsViewModel, localProductsViewModel, onOpenLocalProducts = { open(MobileDestination.LOCAL_DRAFTS) }, fill)
             MobileDestination.LOCAL_DRAFTS -> LocalProductsRoute(user, localProductsViewModel, onBack = { open(MobileDestination.PRODUCTS) }, fill)
             MobileDestination.DISPATCHES -> DispatchesScreen(user.grupo, user.userId, salesViewModel, refreshProducts, fill)
