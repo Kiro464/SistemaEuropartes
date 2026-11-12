@@ -17,7 +17,7 @@ def configuracion_synapse(env):
         return None
     autenticacion = (env.get("SYNAPSE_AUTH") or "ActiveDirectoryMsi").strip()
     return {
-        "ENGINE": "mssql",
+        "ENGINE": "config.synapse_backend",
         "NAME": (env.get("SYNAPSE_DB_NAME") or "europartes_analytics").strip(),
         "HOST": host,
         "PORT": (env.get("SYNAPSE_SQL_PORT") or "1433").strip(),

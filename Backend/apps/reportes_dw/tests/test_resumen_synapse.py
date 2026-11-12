@@ -53,7 +53,7 @@ class ConfiguracionSynapseTests(SimpleTestCase):
             "SYNAPSE_DB_NAME": "europartes_analytics",
         })
 
-        self.assertEqual(config["ENGINE"], "mssql")
+        self.assertEqual(config["ENGINE"], "config.synapse_backend")
         self.assertEqual(config["HOST"], "syn-europartes-analytics-ondemand.sql.azuresynapse.net")
         self.assertEqual((config["NAME"], config["PORT"]), ("europartes_analytics", "1433"))
         self.assertEqual(config["OPTIONS"]["driver"], "ODBC Driver 18 for SQL Server")
@@ -79,6 +79,26 @@ class ConfiguracionSynapseTests(SimpleTestCase):
         self.assertEqual(synapse_config.fuente_resumen({"RESUMEN_FUENTE": " Synapse "}), "synapse")
         with self.assertRaises(ValueError):
             synapse_config.fuente_resumen({"RESUMEN_FUENTE": "powerbi"})
+
+    def test_motor_synapse_no_consulta_trancount_al_activar_autocommit(self):
+        """Synapse sin servidor rechaza SELECT @@TRANCOUNT (15871), que mssql-django lanza al conectar."""
+        from config.synapse_backend.base import DatabaseWrapper
+
+        class ConexionSinConsultas:
+            autocommit = False
+
+            def cursor(self):
+                raise AssertionError("no debe ejecutar SQL para cambiar el autocommit")
+
+        wrapper = DatabaseWrapper({**synapse_config.configuracion_synapse({"SYNAPSE_SQL_HOST": "host"}),
+                                   "AUTOCOMMIT": True, "CONN_MAX_AGE": 0, "CONN_HEALTH_CHECKS": False,
+                                   "ATOMIC_REQUESTS": False, "TIME_ZONE": None, "USER": "", "PASSWORD": "",
+                                   "TEST": {}}, alias="synapse")
+        wrapper.connection = ConexionSinConsultas()
+
+        wrapper._set_autocommit(True)
+
+        self.assertTrue(wrapper.connection.autocommit)
 
     def test_router_impide_migraciones_en_synapse(self):
         router = synapse_config.SynapseRouter()
