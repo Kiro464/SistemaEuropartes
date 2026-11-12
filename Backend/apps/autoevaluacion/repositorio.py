@@ -154,6 +154,12 @@ class Repositorio:
         )
         return list(cursor)
 
+    def vendedores_activos_ids(self, empleado_ids):
+        """Ids de empleados que en `empleados` siguen activos con rol Vendedor (los replica
+        sincronizar_empleados_mongo desde AutoPartes)."""
+        cursor = self.db[EMPLEADOS].find({"_id": {"$in": list(empleado_ids)}, "rol": "Vendedor", "activo": True})
+        return {doc["_id"] for doc in cursor}
+
     def evaluaciones_completadas(self, periodo=None):
         """Evaluaciones finales; el cierre se valida en el servicio de exportación."""
         filtro = {"estado": "completada"}

@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Exporta autoevaluaciones cerradas de MongoDB al staging DW."
+    help = ("Exporta autoevaluaciones cerradas de MongoDB al staging DW y a los hechos "
+            "FactAutoevaluacion / FactAutoevaluacionCategoria.")
 
     def add_arguments(self, parser):
         parser.add_argument("--periodo", help="Periodo cerrado a exportar, formato AAAA-MM.")
@@ -47,3 +48,13 @@ class Command(BaseCommand):
             f"{resultado['insertadas']} insertadas, {resultado['actualizadas']} actualizadas, "
             f"{resultado['omitidas']} omitidas, {resultado['errores']} errores."
         ))
+        self.stdout.write(
+            f"Hechos: {resultado['hechos_insertados']} insertados, "
+            f"{resultado['hechos_actualizados']} actualizados, {resultado['hechos_sin_cambios']} sin cambios."
+        )
+        # Solo el id del documento MongoDB y el motivo: sin datos personales ni respuestas.
+        for rechazo in resultado["rechazos"]:
+            campos = f" ({', '.join(rechazo['campos'])})" if rechazo.get("campos") else ""
+            self.stdout.write(self.style.WARNING(
+                f"  No cargada {rechazo['origen_evaluacion_id']}: {rechazo['motivo']}{campos}"
+            ))

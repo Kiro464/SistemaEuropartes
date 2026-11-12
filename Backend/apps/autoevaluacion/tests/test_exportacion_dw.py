@@ -38,7 +38,10 @@ class _StagingMemoria:
         self.registros = {}
         self.llamadas = 0
 
-    def exportar(self, registros):
+    def empleado_keys(self, empleado_ids):
+        return {}
+
+    def exportar(self, registros, hechos=()):
         self.llamadas += 1
         existentes = set(self.registros)
         for registro in registros:
@@ -126,7 +129,7 @@ class _CursorSQL:
     def execute(self, sql, params=None):
         self.ejecuciones.append((sql, params))
         if "INFORMATION_SCHEMA.TABLES" in sql:
-            self._filas = [(t,) for t in self.tablas]
+            self._filas = [("dbo" if t.startswith("Fact") else "stg", t) for t in self.tablas]
         elif "SELECT OrigenEvaluacionId" in sql:
             self._filas = []
 
@@ -147,7 +150,8 @@ class _ConexionSQL:
 
 class RepositorioStagingDWTests(SimpleTestCase):
     def test_verifica_tablas_y_escribe_detalle_en_transaccion(self):
-        conexion = _ConexionSQL({"AutoevaluacionEvaluacion", "AutoevaluacionRespuesta", "AutoevaluacionPuntajeCategoria"})
+        conexion = _ConexionSQL({"AutoevaluacionEvaluacion", "AutoevaluacionRespuesta", "AutoevaluacionPuntajeCategoria",
+                                 "FactAutoevaluacion", "FactAutoevaluacionCategoria"})
         transacciones = []
         class Atomic:
             def __enter__(self): transacciones.append("inicio")
@@ -156,13 +160,13 @@ class RepositorioStagingDWTests(SimpleTestCase):
             "origen_evaluacion_id": "abc", "cabecera": ("abc", 1, "u", "q", "C", 1, "2026-10", None, None, 1, 1, "n", None),
             "respuestas": [("abc", "P1", "4", 4, "int")], "categorias": [("abc", "A", 4)],
         }])
-        self.assertEqual(resultado, {"insertadas": 1, "actualizadas": 0})
+        self.assertEqual((resultado["insertadas"], resultado["actualizadas"]), (1, 0))
         self.assertEqual(transacciones, ["inicio", "fin"])
         self.assertEqual(len(conexion.cursor_real.lotes), 2)
 
     def test_tabla_inexistente_indica_script(self):
         conexion = _ConexionSQL(set())
-        with self.assertRaisesRegex(TablaStagingNoExiste, "001_stg_autoevaluacion.sql"):
+        with self.assertRaisesRegex(TablaStagingNoExiste, "001_stg_autoevaluacion.sql.*002_fact_autoevaluacion.sql"):
             RepositorioStagingDW(conexion, atomic_factory=lambda: mock.MagicMock()).exportar([{
                 "origen_evaluacion_id": "abc", "cabecera": (), "respuestas": [], "categorias": [],
             }])
