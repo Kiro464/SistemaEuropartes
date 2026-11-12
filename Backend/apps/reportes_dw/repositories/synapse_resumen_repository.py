@@ -71,11 +71,18 @@ def _condiciones(inicio, fin):
 
 
 def _sqlstate(exc):
-    """SQLSTATE del driver (p. ej. 28000 o FA004); nunca el texto, que puede llevar el host."""
+    """SQLSTATE del driver y, si lo hay, el número de error del servidor: «42000/13807».
+
+    Nunca el texto: puede llevar el host o rutas del almacenamiento. El SQLSTATE solo
+    (42000) es genérico; el número nativo identifica la causa exacta.
+    """
     for error in (exc, exc.__cause__):
-        codigo = getattr(error, "args", (None,))[0] if getattr(error, "args", None) else None
+        args = getattr(error, "args", None) or (None,)
+        codigo = args[0]
         if isinstance(codigo, str) and re.fullmatch(r"[0-9A-Z]{5}", codigo):
-            return codigo
+            texto = args[1] if len(args) > 1 and isinstance(args[1], str) else ""
+            nativo = re.search(r"\((\d{3,6})\)\s*\(SQL\w+\)", texto)
+            return f"{codigo}/{nativo.group(1)}" if nativo else codigo
     return "desconocido"
 
 

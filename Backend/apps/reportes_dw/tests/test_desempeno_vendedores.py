@@ -153,6 +153,16 @@ class RepositorioDesempenoTests(_ConRepositorio):
 
         self.assertNotIn("azuresynapse", str(ctx.exception))
 
+    def test_error_de_consulta_incluye_numero_nativo_sin_rutas(self):
+        texto = ("[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Content of directory on path "
+                 "'https://lago.dfs.core.windows.net/raw/autoevaluacion/*.parquet' cannot be listed. (13807) (SQLExecDirectW)")
+        with self.assertRaises(SynapseNoDisponible) as ctx:
+            self.usar(FakeConexion(error=OperationalError("42000", texto))).evaluaciones("2026-11", "2026-11")
+
+        self.assertIn("(código 42000/13807)", str(ctx.exception))
+        self.assertNotIn("dfs.core", str(ctx.exception))
+        self.assertNotIn("raw/", str(ctx.exception))
+
     def test_alias_no_configurado(self):
         with mock.patch.object(repo_mod, "connections", FakeConnections()):
             with self.assertRaisesMessage(SynapseNoDisponible, "no está configurada"):
