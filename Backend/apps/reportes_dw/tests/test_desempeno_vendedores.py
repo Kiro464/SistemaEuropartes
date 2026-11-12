@@ -7,7 +7,8 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.db import OperationalError
+from django.db import InterfaceError, OperationalError
+from django.db.utils import Error as DjangoDbError
 from django.test import SimpleTestCase
 from rest_framework.test import APITestCase
 
@@ -156,6 +157,18 @@ class RepositorioDesempenoTests(_ConRepositorio):
         with mock.patch.object(repo_mod, "connections", FakeConnections()):
             with self.assertRaisesMessage(SynapseNoDisponible, "no está configurada"):
                 SynapseDesempenoRepository().ventas_por_periodo(date(2026, 1, 1), date(2026, 2, 1))
+
+    def test_fallo_de_inicio_de_sesion_es_controlado(self):
+        """El login fallido llega como InterfaceError o Error, que no son DatabaseError."""
+        for error in (
+            InterfaceError("28000", "[28000] Login failed for user '<token-identified principal>' syn-x.sql.azuresynapse.net"),
+            DjangoDbError("FA004", "[FA004] No se pudo autenticar al usuario en Entra ID syn-x.sql.azuresynapse.net"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(SynapseNoDisponible) as ctx:
+                    self.usar(FakeConexion(error=error)).ventas_por_periodo(date(2026, 1, 1), date(2026, 2, 1))
+                self.assertIn(error.args[0], str(ctx.exception))
+                self.assertNotIn("azuresynapse", str(ctx.exception))
 
 
 # ============================================================
@@ -375,6 +388,16 @@ class DesempenoEndpointTests(APITestCase):
         respuesta = self.client.get(self.URL)
 
         self.assertEqual(respuesta.status_code, 503)
+        self.assertNotIn("azuresynapse", str(respuesta.json()))
+
+    def test_login_fallido_503_y_no_500(self):
+        self.usar_conexion(FakeConexion(error=InterfaceError("28000", "Login failed syn-x.sql.azuresynapse.net")))
+        self.client.force_authenticate(self.autorizado)
+
+        respuesta = self.client.get(self.URL, {"periodo_desde": "2026-11", "periodo_hasta": "2026-11"})
+
+        self.assertEqual(respuesta.status_code, 503)
+        self.assertIn("28000", respuesta.json()["detail"])
         self.assertNotIn("azuresynapse", str(respuesta.json()))
 
     def test_no_reemplaza_el_resumen_ejecutivo(self):

@@ -12,9 +12,10 @@ siempre como parámetros; el texto SQL solo contiene nombres fijos.
 """
 
 import logging
+import re
 from decimal import Decimal
 
-from django.db import DatabaseError, connections
+from django.db import Error, connections
 from django.db.utils import ConnectionDoesNotExist
 
 from config.synapse import ALIAS
@@ -69,6 +70,15 @@ def _condiciones(inicio, fin):
     return partes, parametros
 
 
+def _sqlstate(exc):
+    """SQLSTATE del driver (p. ej. 28000 o FA004); nunca el texto, que puede llevar el host."""
+    for error in (exc, exc.__cause__):
+        codigo = getattr(error, "args", (None,))[0] if getattr(error, "args", None) else None
+        if isinstance(codigo, str) and re.fullmatch(r"[0-9A-Z]{5}", codigo):
+            return codigo
+    return "desconocido"
+
+
 def _decimal(valor):
     if valor is None:
         return Decimal("0.00")
@@ -114,10 +124,14 @@ class SynapseResumenRepository:
             with conexion.cursor() as cursor:
                 cursor.execute(sql, parametros)
                 filas = cursor.fetchall()
-        except DatabaseError as exc:
-            # El texto del driver puede incluir el host: al log solo el tipo.
-            logger.error("Consulta a Synapse fallida (%s).", type(exc).__name__)
+        except Error as exc:
+            # Error y no DatabaseError: los fallos de inicio de sesión llegan como
+            # InterfaceError o Error, que no heredan de DatabaseError.
+            # El texto del driver puede incluir el host: al log solo tipo y SQLSTATE.
+            sqlstate = _sqlstate(exc)
+            logger.error("Consulta a Synapse fallida (%s, SQLSTATE %s).", type(exc).__name__, sqlstate)
             raise SynapseNoDisponible(
                 "La fuente analítica Synapse no está disponible en este momento."
+                f" (código {sqlstate})"
             ) from None
         return list(filas or [])
