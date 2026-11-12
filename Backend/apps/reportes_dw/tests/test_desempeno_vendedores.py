@@ -44,9 +44,12 @@ FILAS_CATEGORIAS = [
     (71, "VENDEDOR_V1", "2026-11", "POSVENTA", Decimal("72.5000"), Decimal("15.0000")),
     (71, "VENDEDOR_V1", "2026-11", "PROSPECCION", Decimal("86.6667"), None),
 ]
+# (EmpleadoID, EmpleadoKey, EsActual, Nombres, Apellidos, Cargo): Ana tiene una
+# versión antigua (70) y la vigente (71).
 FILAS_EMPLEADOS = [
-    (7, "Ana", "López", "Vendedor"),
-    (9, "Luis", "Pérez ", "Vendedor"),
+    (7, 70, False, "Ana", "López", "Auxiliar"),
+    (7, 71, True, "Ana", "López", "Vendedor"),
+    (9, 90, True, "Luis", "Pérez ", "Vendedor"),
 ]
 
 
@@ -125,9 +128,21 @@ class RepositorioDesempenoTests(_ConRepositorio):
         empleados = self.usar(conexion).empleados([9, 7, 7])
 
         sql, params = conexion.consultas[0]
-        self.assertIn("e.EsActual = 1 AND e.EmpleadoID IN (%s, %s)", sql)
+        self.assertIn("WHERE e.EmpleadoID IN (%s, %s)", sql)
         self.assertEqual(params, [7, 9])
         self.assertEqual(empleados[9], {"nombres": "Luis", "apellidos": "Pérez", "cargo": "Vendedor"})
+        # Con varias versiones gana la vigente aunque haya otra con más datos antiguos.
+        self.assertEqual(empleados[7]["cargo"], "Vendedor")
+
+    def test_empleado_sin_version_vigente_usa_la_mas_reciente(self):
+        conexion = FakeConexion([[
+            (5, 52, False, "Marta", "Ruiz", "Vendedora"),
+            (5, 50, False, "Marta", "Ruiz", "Auxiliar"),
+        ]])
+
+        empleados = self.usar(conexion).empleados([5])
+
+        self.assertEqual(empleados[5]["cargo"], "Vendedora")
 
     def test_error_controlado_sin_detalles(self):
         conexion = FakeConexion(error=OperationalError("Login failed syn-x.sql.azuresynapse.net"))
@@ -219,6 +234,36 @@ class ServicioDesempenoTests(_ConRepositorio):
         self.assertEqual(unico["empleado"]["empleado_id"], 7)
         self.assertIsNone(unico["empleado"]["nombre_completo"])
         self.assertEqual(unico["ventas"], {"total": Decimal("0.00"), "unidades_vendidas": 0})
+
+    def test_evaluacion_con_version_historica_se_une_por_empleado_id(self):
+        """Evaluación y categorías con la clave antigua 70; ventas con la vigente: un solo vendedor."""
+        evaluacion = [(7, 70, "VENDEDOR_V1", 1, "2026-11", Decimal("78.3100"), "Competente", None)]
+        categorias = [(70, "VENDEDOR_V1", "2026-11", "CIERRE", Decimal("70.0000"), Decimal("20.0000")),
+                      # Categoría de la misma clave lógica pero otra EmpleadoKey: no debe colarse.
+                      (71, "VENDEDOR_V1", "2026-11", "ATENCION", Decimal("85.0000"), None)]
+
+        resultado, _ = self.consultar(respuestas=[FILAS_VENTAS, evaluacion, categorias, FILAS_EMPLEADOS])
+
+        self.assertEqual([e["empleado"]["empleado_id"] for e in resultado["empleados"]], [7, 9])
+        ana = resultado["empleados"][0]
+        self.assertEqual(ana["ventas"]["total"], Decimal("3800.50"))
+        self.assertEqual(ana["empleado"]["cargo"], "Vendedor")
+        self.assertEqual([c["codigo"] for c in ana["autoevaluacion_reciente"]["categorias"]], ["CIERRE"])
+        self.assertIsNone(ana["autoevaluacion_reciente"]["fecha_envio"])
+
+    def test_evaluacion_mas_reciente_es_la_del_ultimo_periodo(self):
+        evaluaciones = [
+            (7, 71, "VENDEDOR_V1", 1, "2026-11", Decimal("78.3100"), "Competente", datetime(2026, 11, 10)),
+            # Enviada después pero de un periodo anterior: no es la más reciente.
+            (7, 71, "VENDEDOR_V1", 1, "2026-10", Decimal("60.0000"), "Básico", datetime(2026, 12, 1)),
+        ]
+
+        resultado, _ = self.consultar(respuestas=[FILAS_VENTAS, evaluaciones, [], FILAS_EMPLEADOS])
+
+        ana = resultado["empleados"][0]
+        self.assertEqual(ana["autoevaluacion_reciente"]["periodo"], "2026-11")
+        self.assertEqual([len(p["autoevaluaciones"]) for p in ana["periodos"]], [1, 1])
+        self.assertEqual(resultado["resumen"]["evaluaciones"], 2)
 
     def test_sin_datos_no_consulta_empleados(self):
         resultado, conexion = self.consultar(respuestas=[[], [], []])

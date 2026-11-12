@@ -5,7 +5,7 @@ Solo lectura, por cursor y sin ORM. Reutiliza la conexión del Resumen Ejecutivo
 
 Vistas de `europartes_analytics` y columnas usadas (las de las tablas del DW):
 
-    dbo.vw_DimEmpleado                 EmpleadoKey, EmpleadoID, Nombres, Apellidos, Cargo, EsActual
+    dbo.vw_DimEmpleado                 EmpleadoKey, EmpleadoID, Nombres, Apellidos, Cargo, EsActual  (vigente o, si no hay, la más reciente)
     dbo.vw_DimTiempo                   TiempoKey, Fecha
     dbo.vw_FactVenta                   EmpleadoKey, FechaVentaKey, Total, Cantidad
     dbo.vw_FactAutoevaluacion          EmpleadoKey, CuestionarioCodigo, CuestionarioVersion,
@@ -72,15 +72,18 @@ SQL_CATEGORIAS = """
     WHERE c.Periodo >= %s AND c.Periodo <= %s{filtro_empleado}
 """
 
-# Datos identificativos de la versión vigente de cada empleado.
+# Todas las versiones de cada empleado; el repositorio elige la vigente o, si ya no
+# hay ninguna (p. ej. dado de baja), la de EmpleadoKey más alta.
 SQL_EMPLEADOS = """
     SELECT
         e.EmpleadoID,
+        e.EmpleadoKey,
+        e.EsActual,
         e.Nombres,
         e.Apellidos,
         e.Cargo
     FROM dbo.vw_DimEmpleado AS e
-    WHERE e.EsActual = 1 AND e.EmpleadoID IN ({marcadores})
+    WHERE e.EmpleadoID IN ({marcadores})
 """
 
 FILTRO_EMPLEADO = " AND e.EmpleadoID = %s"
@@ -157,16 +160,19 @@ class SynapseDesempenoRepository(SynapseResumenRepository):
         ]
 
     def empleados(self, empleado_ids):
-        """{EmpleadoID: datos} de la fila vigente; los que no tengan fila vigente no aparecen."""
+        """{EmpleadoID: datos} de la versión vigente, o de la más reciente si no hay vigente."""
         ids = sorted(set(empleado_ids))
-        resultado = {}
+        elegidas = {}  # EmpleadoID -> ((EsActual, EmpleadoKey), datos)
         for i in range(0, len(ids), TAMANIO_LOTE):
             lote = ids[i:i + TAMANIO_LOTE]
             sql = SQL_EMPLEADOS.format(marcadores=", ".join(["%s"] * len(lote)))
-            for empleado, nombres, apellidos, cargo in self._ejecutar(sql, lote):
-                resultado[int(empleado)] = {
-                    "nombres": _texto(nombres),
-                    "apellidos": _texto(apellidos),
-                    "cargo": _texto(cargo),
-                }
-        return resultado
+            for empleado, empleado_key, es_actual, nombres, apellidos, cargo in self._ejecutar(sql, lote):
+                prioridad = (bool(es_actual), int(empleado_key))
+                actual = elegidas.get(int(empleado))
+                if actual is None or prioridad > actual[0]:
+                    elegidas[int(empleado)] = (prioridad, {
+                        "nombres": _texto(nombres),
+                        "apellidos": _texto(apellidos),
+                        "cargo": _texto(cargo),
+                    })
+        return {empleado: datos for empleado, (_, datos) in elegidas.items()}
