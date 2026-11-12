@@ -1468,6 +1468,13 @@ class Command(BaseCommand):
                     cantidad=detalle_plan[
                         "cantidad_despachada"
                     ],
+                    # Igual que DespachoVentaService: una línea
+                    # entregada registra lo que salió del almacén.
+                    cantidad_entregada=(
+                        detalle_plan["cantidad_despachada"]
+                        if detalle_plan["estado_entrega"] == "Entregado"
+                        else 0
+                    ),
                     estado_entrega=detalle_plan[
                         "estado_entrega"
                     ],
@@ -1895,7 +1902,8 @@ class Command(BaseCommand):
         ordenes = (
             OrdenDespacho.objects
             .select_related(
-                "empleado_responsable"
+                "empleado_responsable",
+                "factura_venta",
             )
             .prefetch_related("detalles")
             .order_by(
@@ -1947,8 +1955,13 @@ class Command(BaseCommand):
                     cantidad=cantidad,
                     stock_anterior=anterior,
                     stock_posterior=posterior,
-                    referencia_tipo="ORDEN_DESPACHO",
-                    referencia_id=orden.id,
+                    # Misma convención que
+                    # InventarioService.registrar_salida_venta:
+                    # la salida referencia a la venta.
+                    referencia_tipo="VENTA",
+                    referencia_id=(
+                        orden.factura_venta.venta_id
+                    ),
                     empleado=(
                         orden.empleado_responsable
                     ),

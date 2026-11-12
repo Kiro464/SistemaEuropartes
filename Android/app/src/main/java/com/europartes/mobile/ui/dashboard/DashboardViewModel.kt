@@ -10,6 +10,7 @@ import com.europartes.mobile.data.remote.ApiClient
 import com.europartes.mobile.data.repository.OfflineSnapshotStore
 import com.europartes.mobile.data.repository.DashboardReportData
 import com.europartes.mobile.data.repository.DashboardRepository
+import com.europartes.mobile.data.repository.OPTIONAL_DASHBOARD_REPORTS
 import com.europartes.mobile.data.remote.SaleConfigurationDto
 import com.europartes.mobile.ui.navigation.DASHBOARD_ROLES
 import com.google.gson.JsonElement
@@ -158,7 +159,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 if (snapshot != null) report.copy(payload = snapshot.first, error = null, isOfflineSnapshot = true, cachedAtEpochMs = snapshot.second) else report
             } else report
         }
-        val failures = reports.count { it.error != null }
+        val failures = reports.count { it.error != null && it.id !in OPTIONAL_DASHBOARD_REPORTS }
         val stale = reports.count { it.isOfflineSnapshot }
         mutableState.value = mutableState.value.copy(
             reports = reports,

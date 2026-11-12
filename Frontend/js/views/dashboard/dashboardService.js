@@ -58,6 +58,9 @@ export const DashboardService = {
     async getMovimientosInventario(rango) {
         return ApiService.get(`/reportes_dw/dashboard/movimientos-inventario/${qs(rango)}`);
     },
+    async getConciliacionDespachos(rango) {
+        return ApiService.get(`/reportes_dw/dashboard/conciliacion-despachos/${qs(rango)}`);
+    },
     async getStockCritico() {
         // El stock crítico representa el estado ACTUAL del inventario.
         // Por eso se consulta el OLTP y no el snapshot histórico del DW.

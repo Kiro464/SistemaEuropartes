@@ -145,7 +145,12 @@ fun DashboardScreen(
             val criticalStock = state.reports.firstOrNull { it.id == "stock-critico-operacional" }
             DashboardKpiPanel(sales, purchases, state.reports.firstOrNull { it.id == "ventas-vs-compras" }, criticalStock, displayCurrency, state.exchangeRate)
             reportOrder.forEach { (id, title) ->
-                state.reports.firstOrNull { it.id == id }?.let { DashboardReportCard(it, title, displayCurrency, state.exchangeRate) }
+                val report = state.reports.firstOrNull { it.id == id } ?: return@forEach
+                if (id == "movimientos-inventario") {
+                    InventoryMovementsCard(report, state.reports.firstOrNull { it.id == "conciliacion-despachos" }, title)
+                } else {
+                    DashboardReportCard(report, title, displayCurrency, state.exchangeRate)
+                }
             }
             DwStatusPanel(state.reports.firstOrNull { it.id == "estado-etl" }, state.reports.firstOrNull { it.id == "cobertura-dw" })
             state.reports.firstOrNull { it.id == "stock-evolucion" }?.let { DashboardReportCard(it, "Evolución del stock", displayCurrency, state.exchangeRate) }
@@ -192,7 +197,7 @@ private fun DashboardKpiPanel(
     }
     KpiGrid(
         listOf(
-            KpiItem("Ventas", salesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", sales?.error?.let { "No disponible" } ?: operationsDetail(sales)),
+            KpiItem("Ventas", salesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", sales?.error?.let { "No disponible" } ?: operationsDetail(sales, sold = true)),
             KpiItem("Compras", purchasesValue?.let { formatMoney(it, currency, exchangeRate) } ?: "—", purchases?.error?.let { "No disponible" } ?: operationsDetail(purchases)),
             KpiItem(
                 "Resultado comercial",
@@ -254,6 +259,100 @@ private fun DashboardReportCard(report: DashboardReportData, title: String, curr
     }
 }
 
+/** Inventory movements by type, each counted on the date it happened, plus how they reconcile with the period's sales. */
+@Composable
+private fun InventoryMovementsCard(movements: DashboardReportData, reconciliation: DashboardReportData?, title: String) {
+    EuropartesCard {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(MOVEMENTS_NOTE, style = MaterialTheme.typography.bodySmall, color = dashboardMuted)
+        if (movements.isOfflineSnapshot && movements.cachedAtEpochMs != null) {
+            Text(
+                "Copia guardada · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(movements.cachedAtEpochMs))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = dashboardMuted,
+            )
+        }
+        when {
+            movements.error != null -> EuropartesStatusMessage(movements.error, isError = true)
+            else -> {
+                val rows = movementTotals(movements.payload)
+                val maximum = rows.maxOf { it.second }.coerceAtLeast(1L)
+                rows.forEachIndexed { index, (label, quantity) ->
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        SummaryRow(label, formatUnits(quantity))
+                        Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(8.dp)).background(dashboardRaised)) {
+                            Box(Modifier.fillMaxWidth((quantity.toFloat() / maximum).coerceIn(0f, 1f)).height(9.dp).clip(RoundedCornerShape(8.dp)).background(dashboardSeries[index % dashboardSeries.size]))
+                        }
+                    }
+                }
+            }
+        }
+        dispatchReconciliation(reconciliation?.takeIf { it.error == null }?.payload)?.let { data ->
+            Spacer(Modifier.height(4.dp))
+            Text("Conciliación con las ventas del periodo", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+            SummaryRow("Unidades vendidas", formatUnits(data.unitsSold))
+            SummaryRow("Ya despachadas", formatUnits(data.dispatched))
+            SummaryRow("Pendientes de despacho", formatUnits(data.pending))
+            Text(data.explanation(), style = MaterialTheme.typography.bodySmall, color = dashboardMuted)
+        }
+    }
+}
+
+internal const val MOVEMENTS_NOTE =
+    "Cada movimiento cuenta en la fecha en que ocurrió. Las salidas se registran al validar el despacho, no en la fecha de la venta."
+
+private val movementTypes = listOf(
+    "ENTRADA_COMPRA" to "Entradas por compra",
+    "SALIDA_VENTA" to "Salidas por despacho",
+    "AJUSTE" to "Ajustes",
+)
+
+/** Units per movement type, always the three types in the web's order (missing types count as zero). */
+internal fun movementTotals(payload: JsonElement?): List<Pair<String, Long>> {
+    val byType = (payload?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray())
+        .filter { it.isJsonObject }.map { it.asJsonObject }
+        .associate { record ->
+            val type = (record.get("tipo_movimiento_codigo") ?: record.get("tipo_movimiento"))
+                ?.takeUnless { it.isJsonNull }?.asString.orEmpty().uppercase(Locale.ROOT)
+            type to (record.number("cantidad")?.toLong() ?: 0L)
+        }
+    return movementTypes.map { (type, label) -> label to (byType[type] ?: 0L) }
+}
+
+internal data class DispatchReconciliation(
+    val unitsSold: Long,
+    val dispatched: Long,
+    val pending: Long,
+    val exits: Long,
+    val exitsFromPeriodSales: Long,
+    val exitsFromEarlierSales: Long,
+    val exitsWithoutSale: Long,
+) {
+    fun explanation(): String {
+        val withoutSale = if (exitsWithoutSale > 0) " + ${formatUnits(exitsWithoutSale)} sin venta asociada" else ""
+        return "Salidas por despacho del periodo: ${formatUnits(exits)} = ${formatUnits(exitsFromPeriodSales)} de ventas del periodo + " +
+            "${formatUnits(exitsFromEarlierSales)} de ventas anteriores$withoutSale."
+    }
+}
+
+internal fun dispatchReconciliation(payload: JsonElement?): DispatchReconciliation? {
+    val root = payload?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+    val sales = root.get("ventas_del_periodo")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+    val exits = root.get("salidas_del_periodo")?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+    fun JsonObject.units(key: String) = number(key)?.toLong() ?: 0L
+    return DispatchReconciliation(
+        unitsSold = sales.units("unidades_vendidas"),
+        dispatched = sales.units("despachadas"),
+        pending = sales.units("pendientes_de_despacho"),
+        exits = exits.units("unidades"),
+        exitsFromPeriodSales = exits.units("de_ventas_del_periodo"),
+        exitsFromEarlierSales = exits.units("de_ventas_anteriores"),
+        exitsWithoutSale = exits.units("sin_venta_asociada"),
+    )
+}
+
+private fun formatUnits(value: Long): String = DecimalFormat("#,##0", java.text.DecimalFormatSymbols(Locale.US)).format(value)
+
 /** The server ignores the period for this report, so the card says it covers the whole history. */
 @Composable
 private fun BalanceContent(values: JsonObject, currency: String, exchangeRate: String?) {
@@ -264,11 +363,12 @@ private fun BalanceContent(values: JsonObject, currency: String, exchangeRate: S
     Text("Acumulado histórico: no depende del periodo seleccionado.", style = MaterialTheme.typography.bodySmall, color = dashboardMuted)
 }
 
-private fun operationsDetail(report: DashboardReportData?): String? {
+private fun operationsDetail(report: DashboardReportData?, sold: Boolean = false): String? {
     val values = report?.payload?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
     val units = values.number("unidades")?.toInt() ?: return null
     val operations = values.number("operaciones")?.toInt() ?: return null
-    return "$units ${if (units == 1) "unidad" else "unidades"} · $operations ${if (operations == 1) "operación" else "operaciones"}"
+    val unitLabel = if (units == 1) "unidad" else "unidades"
+    return "$units $unitLabel${if (sold) (if (units == 1) " vendida" else " vendidas") else ""} · $operations ${if (operations == 1) "operación" else "operaciones"}"
 }
 
 /** Name and units only, lowest stock first; the full list opens on demand because it can be long. */

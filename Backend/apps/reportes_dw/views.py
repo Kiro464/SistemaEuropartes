@@ -15,6 +15,7 @@ from .services.ventas_service import VentasService
 from .services.compras_service import ComprasService
 from .services.solicitudes_service import SolicitudesService
 from .services.inventario_service import InventarioService
+from .services.despachos_service import DespachosService
 from .services.monitoreo_service import MonitoreoService
 
 
@@ -29,6 +30,7 @@ _ventas = VentasService()
 _compras = ComprasService()
 _solicitudes = SolicitudesService()
 _inventario = InventarioService()
+_despachos = DespachosService()
 _monitoreo = MonitoreoService()
 
 
@@ -132,6 +134,14 @@ class MovimientosInventarioResumenView(APIView):
 
     def get(self, request):
         return Response(_inventario.movimientos_resumen(request.query_params))
+
+
+class ConciliacionDespachosView(APIView):
+    """Unidades vendidas frente a salidas por despacho del mismo periodo."""
+    permission_classes = [PuedeConsultarDashboard]
+
+    def get(self, request):
+        return Response(_despachos.conciliacion(request.query_params))
 
 
 class StockCriticoView(APIView):

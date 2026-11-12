@@ -21,6 +21,12 @@ val DASHBOARD_RANGES = listOf(
     "historico" to "Histórico completo",
 )
 
+/**
+ * Reports that complement another panel. When one fails (for example, a backend that does
+ * not publish it yet) its panel simply hides it, without warning about an unavailable report.
+ */
+val OPTIONAL_DASHBOARD_REPORTS = setOf("conciliacion-despachos")
+
 data class DashboardReportData(
     val id: String,
     val title: String,
@@ -158,6 +164,7 @@ class DashboardRepository(
             DashboardReportSpec("compras-por-estado", "Compras por estado", "compras-por-estado"),
             DashboardReportSpec("solicitudes-resumen", "Solicitudes por estado", "solicitudes-resumen"),
             DashboardReportSpec("movimientos-inventario", "Entradas y salidas", "movimientos-inventario"),
+            DashboardReportSpec("conciliacion-despachos", "Conciliación con ventas", "conciliacion-despachos"),
             DashboardReportSpec("stock-evolucion", "Evolución del stock en el DW", "stock-evolucion", mapOf("limite" to "90")),
             DashboardReportSpec("cobertura-dw", "Cobertura del Data Warehouse", "cobertura-dw", includeRange = false),
             DashboardReportSpec("estado-etl", "Estado de la última carga ETL", "estado-etl", includeRange = false),

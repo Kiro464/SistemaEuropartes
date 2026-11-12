@@ -114,6 +114,12 @@ urlpatterns = [
     ),
 
     path(
+        "dashboard/conciliacion-despachos/",
+        views.ConciliacionDespachosView.as_view(),
+        name="conciliacion_despachos",
+    ),
+
+    path(
         "dashboard/stock-critico/",
         views.StockCriticoView.as_view(),
         name="stock_critico",

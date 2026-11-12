@@ -263,6 +263,7 @@ export const DashboardController = {
             comprasEstado: DashboardService.getComprasPorEstado(rango),
             solicitudes: DashboardService.getSolicitudesResumen(rango),
             movimientos: DashboardService.getMovimientosInventario(rango),
+            conciliacion: DashboardService.getConciliacionDespachos(rango),
             stockCritico: DashboardService.getStockCritico(),
             stockEvolucion: DashboardService.getStockEvolucion(rango),
             cobertura: DashboardService.getCoberturaDW(),
@@ -277,7 +278,8 @@ export const DashboardController = {
         // Si el usuario ya salió del Dashboard, sus elementos no existen: no se pinta nada.
         if (requestId !== this._requestId || !document.getElementById('kpi-ventas-total')) return;
         const data = Object.fromEntries(entries);
-        const failed = entries.filter(([, result]) => !result.ok).map(([key]) => key);
+        // La conciliación complementa el panel de movimientos: si falta (backend sin publicar), solo se oculta.
+        const failed = entries.filter(([key, result]) => !result.ok && key !== 'conciliacion').map(([key]) => key);
 
         if (data.ventas.ok) this.renderVentas(data.ventas.data);
         if (data.compras.ok) this.renderCompras(data.compras.data);
@@ -292,6 +294,7 @@ export const DashboardController = {
         if (data.comprasEstado.ok) this.renderDonut('chart-compras-estado', data.comprasEstado.data, 'estado', 'cantidad');
         if (data.solicitudes.ok) this.renderDonut('chart-solicitudes-estado', data.solicitudes.data, 'estado', 'solicitudes');
         if (data.movimientos.ok) this.renderMovimientos(data.movimientos.data);
+        this.renderConciliacion(data.conciliacion.ok ? data.conciliacion.data : null);
         if (data.stockCritico.ok) this.renderStockCritico(data.stockCritico.data);
         if (data.stockEvolucion.ok) this.renderStockEvolution(data.stockEvolucion.data);
         if (data.cobertura.ok || data.etl.ok) this.renderDWStatus(data.cobertura?.data, data.etl?.data);
@@ -340,7 +343,7 @@ export const DashboardController = {
 
     renderVentas(data) {
         document.getElementById('kpi-ventas-total').textContent = money(data.total);
-        document.getElementById('kpi-ventas-meta').textContent = `${integer(data.unidades)} unidades · ${integer(data.operaciones)} operaciones`;
+        document.getElementById('kpi-ventas-meta').textContent = `${integer(data.unidades)} unidades vendidas · ${integer(data.operaciones)} operaciones`;
     },
     renderCompras(data) {
         document.getElementById('kpi-compras-total').textContent = money(data.total);
@@ -483,13 +486,39 @@ export const DashboardController = {
             map[key] = num(x.cantidad);
         });
         const rows = [
-            ['ENTRADA_COMPRA', 'Entradas', 'bx-log-in'],
-            ['SALIDA_VENTA', 'Salidas', 'bx-log-out'],
+            ['ENTRADA_COMPRA', 'Entradas por compra', 'bx-log-in'],
+            ['SALIDA_VENTA', 'Salidas por despacho', 'bx-log-out'],
             ['AJUSTE', 'Ajustes', 'bx-transfer']
         ];
         const max = Math.max(...rows.map(r => map[r[0]] || 0), 1);
         const container = document.getElementById('chart-movimientos');
         container.innerHTML = `<div class="movement-grid">${rows.map(([key,label,icon]) => `<div class="movement-item"><div class="movement-icon"><i class='bx ${icon}'></i></div><div><span>${label}</span><strong>${integer(map[key] || 0)}</strong></div><div class="movement-track"><span style="width:${Math.max((map[key]||0)/max*100, 2)}%"></span></div></div>`).join('')}</div>`;
+    },
+
+    /**
+     * Explica la diferencia entre unidades vendidas (fecha de venta) y salidas
+     * (fecha de despacho) del mismo periodo, sin cambiar ninguno de los dos.
+     */
+    renderConciliacion(data) {
+        const container = document.getElementById('conciliacion-despachos');
+        if (!container) return;
+        if (!data) {
+            container.innerHTML = '';
+            return;
+        }
+        const ventas = data.ventas_del_periodo || {};
+        const salidas = data.salidas_del_periodo || {};
+        const sinVenta = num(salidas.sin_venta_asociada);
+        container.innerHTML = `
+            <h4>Conciliación con las ventas del periodo</h4>
+            <dl>
+                <div><dt>Unidades vendidas</dt><dd>${integer(ventas.unidades_vendidas)}</dd></div>
+                <div><dt>Ya despachadas</dt><dd>${integer(ventas.despachadas)}</dd></div>
+                <div><dt>Pendientes de despacho</dt><dd>${integer(ventas.pendientes_de_despacho)}</dd></div>
+            </dl>
+            <p>Salidas por despacho del periodo: <strong>${integer(salidas.unidades)}</strong> =
+                ${integer(salidas.de_ventas_del_periodo)} de ventas del periodo +
+                ${integer(salidas.de_ventas_anteriores)} de ventas anteriores${sinVenta ? ` + ${integer(sinVenta)} sin venta asociada` : ''}.</p>`;
     },
 
     renderStockCritico(data) {

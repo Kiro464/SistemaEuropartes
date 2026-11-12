@@ -28,7 +28,7 @@ export const DashboardView = {
                 <section class="dashboard-kpi-grid" aria-label="Indicadores principales">
                     <article class="dashboard-kpi kpi-sales">
                         <div class="kpi-icon"><i class='bx bx-line-chart'></i></div>
-                        <div><span>Ventas</span><strong id="kpi-ventas-total">—</strong><small id="kpi-ventas-meta">Cargando…</small></div>
+                        <div><span title="Por fecha de venta">Ventas</span><strong id="kpi-ventas-total">—</strong><small id="kpi-ventas-meta">Cargando…</small></div>
                     </article>
                     <article class="dashboard-kpi kpi-purchases">
                         <div class="kpi-icon"><i class='bx bx-cart'></i></div>
@@ -64,7 +64,9 @@ export const DashboardView = {
                         <div class="panel-heading">
                             <div><span class="panel-kicker">Inventario</span><h3>Entradas y salidas</h3></div>
                         </div>
+                        <p class="panel-note">Cada movimiento cuenta en la fecha en que ocurrió. Las salidas se registran al validar el despacho, no en la fecha de la venta.</p>
                         <div id="chart-movimientos" class="chart-area"></div>
+                        <div id="conciliacion-despachos" class="dispatch-reconciliation" aria-live="polite"></div>
                     </article>
                 </section>
 
