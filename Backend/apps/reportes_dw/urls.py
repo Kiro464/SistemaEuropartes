@@ -48,6 +48,12 @@ urlpatterns = [
     ),
 
     path(
+        "dashboard/desempeno-vendedores/",
+        views.DesempenoVendedoresView.as_view(),
+        name="desempeno_vendedores",
+    ),
+
+    path(
         "dashboard/clientes-top/",
         views.ClientesTopView.as_view(),
         name="clientes_top",

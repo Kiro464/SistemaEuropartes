@@ -11,6 +11,8 @@ from .services.etl_service import (
 )
 from .services.dashboard_service import DashboardService
 from .repositories.synapse_resumen_repository import SynapseNoDisponible
+from .serializers import DesempenoVendedoresParamsSerializer
+from .services.desempeno_vendedores_service import DesempenoVendedoresService
 from .services.ventas_service import VentasService
 from .services.compras_service import ComprasService
 from .services.solicitudes_service import SolicitudesService
@@ -32,6 +34,7 @@ _solicitudes = SolicitudesService()
 _inventario = InventarioService()
 _despachos = DespachosService()
 _monitoreo = MonitoreoService()
+_desempeno = DesempenoVendedoresService()
 
 
 class ResumenEjecutivoView(APIView):
@@ -42,6 +45,21 @@ class ResumenEjecutivoView(APIView):
             return Response(_dashboard.resumen(request.query_params))
         except SynapseNoDisponible as exc:
             # Mensaje genérico: nunca host, cadena de conexión ni texto del driver.
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class DesempenoVendedoresView(APIView):
+    """Autoevaluaciones y ventas por vendedor y periodo, solo lectura desde Synapse."""
+
+    permission_classes = [PuedeConsultarDashboard]
+
+    def get(self, request):
+        filtros = DesempenoVendedoresParamsSerializer(data=request.query_params)
+        filtros.is_valid(raise_exception=True)
+        try:
+            return Response(_desempeno.consultar(**filtros.validated_data))
+        except SynapseNoDisponible as exc:
+            # Igual que el Resumen Ejecutivo: mensaje genérico, sin host ni texto del driver.
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
