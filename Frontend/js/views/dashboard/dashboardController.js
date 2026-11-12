@@ -274,7 +274,8 @@ export const DashboardController = {
             catch (error) { console.error(`Dashboard: ${key}`, error); return [key, { ok: false, error }]; }
         }));
 
-        if (requestId !== this._requestId) return;
+        // Si el usuario ya salió del Dashboard, sus elementos no existen: no se pinta nada.
+        if (requestId !== this._requestId || !document.getElementById('kpi-ventas-total')) return;
         const data = Object.fromEntries(entries);
         const failed = entries.filter(([, result]) => !result.ok).map(([key]) => key);
 

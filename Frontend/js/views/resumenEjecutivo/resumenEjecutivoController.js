@@ -49,11 +49,11 @@ export const ResumenEjecutivoController = {
         this.ocultarAlerta();
         try {
             const datos = await ResumenEjecutivoService.obtener(rango);
-            if (requestId !== this._requestId) return;
+            if (requestId !== this._requestId || !this.vistaActiva()) return;
             this._datos = datos;
             this.render(datos);
         } catch (error) {
-            if (requestId !== this._requestId) return;
+            if (requestId !== this._requestId || !this.vistaActiva()) return;
             console.error('Resumen ejecutivo:', error);
             this._datos = null;
             this.renderError(error);
@@ -130,6 +130,11 @@ export const ResumenEjecutivoController = {
     ocultarAlerta() {
         const el = document.getElementById('resumen-alert');
         if (el) el.className = 'dashboard-alert hidden';
+    },
+
+    /** El usuario puede haber navegado a otra pantalla mientras llegaba la respuesta. */
+    vistaActiva() {
+        return !!document.getElementById('chart-resumen-tendencia');
     },
 
     texto(id, valor) {

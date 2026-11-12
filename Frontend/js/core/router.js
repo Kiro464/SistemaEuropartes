@@ -256,6 +256,10 @@ export const Router = {
                     error
                 );
 
+                // Una vista anterior que termina tarde (el usuario ya navegó a
+                // otra) no debe tapar la pantalla actual con su error.
+                if (sequence !== this._navigationSequence) return;
+
                 if (mainContent) {
 
                     mainContent.innerHTML = `
